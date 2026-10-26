@@ -101,22 +101,24 @@ for (const sport of Object.keys(SPORTS)) {
     }
   }
 
-  // Round robin: 3 weeks, every team plays once a week. Weeks 1-2 are final, week 3 is upcoming.
+  // Round robin, played twice: 6 weeks. Weeks 1-4 are final, week 5 is half played, week 6 is upcoming.
   const pairings = [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[0, 3], [1, 2]]];
-  pairings.forEach((week, w) => {
-    week.forEach(([a, b], gi) => {
-      const start = new Date(now + (w - 2) * 7 * DAY + gi * 3600000);
+  for (let w = 0; w < 6; w++) {
+    pairings[w % 3].forEach(([a, b], gi) => {
+      const start = new Date(now + (w - 4) * 7 * DAY);
       start.setHours(19 + gi, 0, 0, 0);
-      const final = w < 2;
+      const status = w < 4 || (w === 4 && gi === 0) ? 'final' : w === 4 ? 'live' : 'scheduled';
       const gameId = Number(run(
         'INSERT INTO games (sport, week, starts_at, location, home_team_id, away_team_id, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        sport, w + 1, start.toISOString(), venues[sport], teams[a].id, teams[b].id, final ? 'final' : 'scheduled'
+        sport, w + 1, start.toISOString(), venues[sport], teams[a].id, teams[b].id, status
       ).lastInsertRowid);
-      if (!final) return;
+      if (status === 'scheduled') return;
       const scores = {};
       for (const t of [teams[a], teams[b]]) {
         const lines = athletes.filter((x) => x.team === t.id).map((x) => {
           const line = statLine(sport, x.position);
+          // A live game is about half done.
+          if (status === 'live') for (const k of Object.keys(line)) line[k] = Math.floor(line[k] / 2);
           for (const k of Object.keys(line)) if (!line[k]) delete line[k];
           run('INSERT INTO game_stats (game_id, athlete_id, stats) VALUES (?, ?, ?)', gameId, x.id, JSON.stringify(line));
           return line;
@@ -126,7 +128,7 @@ for (const sport of Object.keys(SPORTS)) {
       if (sport === 'volleyball') scores[teams[b].id] = Math.max(0, scores[teams[a].id] - 1 - rand(2));
       run('UPDATE games SET home_score = ?, away_score = ? WHERE id = ?', scores[teams[a].id], scores[teams[b].id], gameId);
     });
-  });
+  }
 }
 
 // One fantasy league per sport, in different states so every screen has something on it.
@@ -135,8 +137,11 @@ const teamNames = ['Gridiron Gang', 'Holy Rollers', 'Bench Warmers', 'Pick Six P
 for (const [sport, target] of Object.entries(leagueStates)) {
   const s = SPORTS[sport];
   const leagueId = Number(run(
-    'INSERT INTO leagues (sport, name, season, roster_size, pick_seconds, scoring, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    sport, `ΧΛΦ ${s.name}`, 'Fall 2026', s.rosterSize, target === 'drafting' ? 600 : 90, JSON.stringify(defaultScoring(sport)), users[0].id
+    `INSERT INTO leagues (sport, name, season, roster_size, pick_seconds, scoring, created_by, regular_weeks, playoff_teams)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sport, `ΧΛΦ ${s.name}`, 'Fall 2026', s.rosterSize, target === 'drafting' ? 600 : 90, JSON.stringify(defaultScoring(sport)), users[0].id,
+    // Basketball is already in the playoffs; flag football is mid regular season.
+    sport === 'basketball' ? 4 : 6, 4
   ).lastInsertRowid);
   const members = target === 'setup' ? users.slice(0, 3) : users.slice(0, 5);
   members.forEach((u, i) => {

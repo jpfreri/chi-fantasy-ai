@@ -168,8 +168,20 @@ app.get('/api/home', needUser, wrap((req) => {
     req.user.id
   ).map((t) => {
     const league = F.getLeague(t.league_id);
-    const row = F.standings(league).find((s) => s.id === t.team_id);
-    return { ...t, rank: row?.rank, points: row?.points, teams: F.leagueTeams(league.id).length };
+    const view = F.leagueView(league);
+    const row = view.teams.find((s) => s.id === t.team_id);
+    const games = [...view.matchups, ...(view.playoffs?.rounds.flatMap((r) => r.games) || [])];
+    const m = games.find((g) => g.week === view.currentWeek && (g.home_team_id === t.team_id || g.away_team_id === t.team_id));
+    const opp = m && view.teams.find((x) => x.id === (m.home_team_id === t.team_id ? m.away_team_id : m.home_team_id));
+    return {
+      ...t, rank: row?.rank, points: row?.points, w: row?.w, l: row?.l, ties: row?.t, teams: view.teams.length,
+      week: view.currentWeek, champion: league.status === 'complete' ? view.champion : null,
+      matchup: m ? {
+        label: m.label || null, state: m.state, opponent: opp?.name || 'TBD',
+        mine: m.home_team_id === t.team_id ? m.home_points : m.away_points,
+        theirs: m.home_team_id === t.team_id ? m.away_points : m.home_points,
+      } : null,
+    };
   });
   const gameSql = `SELECT g.*, h.name AS home_name, a.name AS away_name FROM games g
       LEFT JOIN im_teams h ON h.id = g.home_team_id LEFT JOIN im_teams a ON a.id = g.away_team_id`;
@@ -426,14 +438,19 @@ app.post('/api/leagues', needAdmin, wrap((req) => {
   const sport = requireSport(req.body.sport);
   const name = cleanText(req.body.name) || `${SPORTS[sport].name} League`;
   const r = run(
-    'INSERT INTO leagues (sport, name, season, roster_size, pick_seconds, scoring, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    `INSERT INTO leagues (sport, name, season, roster_size, pick_seconds, scoring, created_by, regular_weeks, playoff_teams)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     sport, name, cleanText(req.body.season, 30) || null,
     Math.min(20, Math.max(1, Number(req.body.roster_size) || SPORTS[sport].rosterSize)),
     Math.max(0, Number(req.body.pick_seconds ?? 90) || 0),
-    JSON.stringify(defaultScoring(sport)), req.user.id
+    JSON.stringify(defaultScoring(sport)), req.user.id,
+    clampWeeks(req.body.regular_weeks ?? F.defaultRegularWeeks(sport)), playoffTeams(req.body.playoff_teams ?? 4)
   );
   return { id: Number(r.lastInsertRowid) };
 }));
+
+const clampWeeks = (v) => Math.min(30, Math.max(1, Math.round(Number(v)) || 1));
+const playoffTeams = (v) => ([0, 2, 4].includes(Number(v)) ? Number(v) : 4);
 
 function loadLeague(req) {
   const league = F.getLeague(req.params.id);
@@ -444,17 +461,22 @@ function loadLeague(req) {
 app.get('/api/leagues/:id', needUser, wrap((req) => {
   F.processExpiredPicks(Number(req.params.id));
   const league = loadLeague(req);
-  const table = F.standings(league);
-  const mine = table.find((t) => t.user_id === req.user.id) || null;
+  const view = F.leagueView(league);
+  const mine = view.teams.find((t) => t.user_id === req.user.id) || null;
   return {
     league,
     sport: SPORTS[league.sport],
-    standings: table,
+    standings: view.teams,
+    matchups: view.matchups,
+    playoffs: view.playoffs,
+    champion: view.champion,
+    currentWeek: view.currentWeek,
+    lastWeek: view.lastWeek,
+    weekStates: view.weeks,
     myTeam: mine,
     isCommish: isCommish(req.user, league),
     freeAgents: league.status === 'active' ? F.availableAthletes(league).sort((a, b) => b.points - a.points) : [],
     activity: all('SELECT * FROM activity WHERE league_id = ? ORDER BY id DESC LIMIT 30', league.id),
-    weeks: [...new Set(all('SELECT DISTINCT week FROM games WHERE sport = ? ORDER BY week', league.sport).map((r) => r.week))],
   };
 }));
 
@@ -474,13 +496,21 @@ app.put('/api/leagues/:id', needUser, wrap((req) => {
     scoring = {};
     for (const [k] of SPORTS[league.sport].stats) scoring[k] = Number(req.body.scoring[k]) || 0;
   }
+  const regularWeeks = req.body.regular_weeks !== undefined ? clampWeeks(req.body.regular_weeks) : league.regular_weeks;
+  const playoffs = req.body.playoff_teams !== undefined ? playoffTeams(req.body.playoff_teams) : league.playoff_teams;
   let status = league.status;
   if (req.body.status === 'complete' && league.status === 'active') status = 'complete';
   if (req.body.status === 'active' && league.status === 'complete') status = 'active';
   run(
-    'UPDATE leagues SET name = ?, season = ?, roster_size = ?, pick_seconds = ?, scoring = ?, status = ? WHERE id = ?',
-    name, season, roster, pick, JSON.stringify(scoring), status, league.id
+    `UPDATE leagues SET name = ?, season = ?, roster_size = ?, pick_seconds = ?, scoring = ?, status = ?,
+            regular_weeks = ?, playoff_teams = ? WHERE id = ?`,
+    name, season, roster, pick, JSON.stringify(scoring), status, regularWeeks, playoffs, league.id
   );
+  // A new season length means a new head-to-head schedule.
+  if (regularWeeks !== league.regular_weeks && ['active', 'complete'].includes(league.status)) {
+    F.generateSchedule({ ...league, regular_weeks: regularWeeks });
+    F.log(league.id, `The commissioner changed the regular season to ${regularWeeks} weeks, so the schedule was redrawn.`);
+  }
   return { ok: true };
 }));
 

@@ -121,10 +121,28 @@ CREATE TABLE IF NOT EXISTS activity (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+-- Head-to-head regular season. Playoff games are worked out from the standings, so they are not stored.
+CREATE TABLE IF NOT EXISTS matchups (
+  id INTEGER PRIMARY KEY,
+  league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+  week INTEGER NOT NULL,
+  home_team_id INTEGER NOT NULL REFERENCES league_teams(id) ON DELETE CASCADE,
+  away_team_id INTEGER NOT NULL REFERENCES league_teams(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_matchups_league ON matchups(league_id);
 CREATE INDEX IF NOT EXISTS idx_athletes_sport ON athletes(sport);
 CREATE INDEX IF NOT EXISTS idx_games_sport ON games(sport);
 CREATE INDEX IF NOT EXISTS idx_roster_league ON roster(league_id);
 `);
+
+// Columns added after the first version. Older databases get them on startup.
+function addColumn(table, column, definition) {
+  const has = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+  if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+addColumn('leagues', 'regular_weeks', 'INTEGER NOT NULL DEFAULT 5');
+addColumn('leagues', 'playoff_teams', 'INTEGER NOT NULL DEFAULT 4');
 
 function tx(fn) {
   db.exec('BEGIN IMMEDIATE');

@@ -59,6 +59,7 @@ function fromLocalInput(v) {
   return v ? new Date(v).toISOString() : null;
 }
 
+const ordinal = (n) => `${n}${['th', 'st', 'nd', 'rd'][(n % 100 >= 11 && n % 100 <= 13) || n % 10 > 3 ? 0 : n % 10]}`;
 const pts = (n) => `<span class="pts ${n < 0 ? 'neg' : ''}">${Number(n || 0).toFixed(1)}</span>`;
 const statusBadge = (s) => `<span class="badge ${esc(s)}">${esc(s)}</span>`;
 const sportName = (k) => `${S.sports[k]?.icon || ''} ${esc(S.sports[k]?.name || k)}`;
@@ -127,7 +128,7 @@ const routes = [
   [/^#\/game\/(\d+)(?:\/(edit))?$/, pageGame],
   [/^#\/player\/(\d+)$/, pagePlayer],
   [/^#\/league\/(\d+)\/draft$/, pageDraft],
-  [/^#\/league\/(\d+)(?:\/(\w+))?$/, pageLeague],
+  [/^#\/league\/(\d+)(?:\/(\w+))?(?:\/(\d+))?$/, pageLeague],
   [/^#\/admin$/, pageAdmin],
   [/^#\/account$/, pageAccount],
   [/^#?\/?$/, pageHome],
@@ -136,7 +137,8 @@ const routes = [
 async function route() {
   cleanup.forEach((fn) => fn());
   cleanup = [];
-  actions = { logout: doLogout };
+  actions = { logout: doLogout, closeDialog };
+  closeDialog();
   forms = {};
   const hash = location.hash || '#/';
   const publicPage = hash === '#/login' || hash === '#/register';
@@ -158,6 +160,22 @@ async function route() {
     }
   }
   render('<div class="card"><h2>Page not found</h2><a href="#/">Back home</a></div>');
+}
+
+// A simple modal. Content is HTML; buttons inside use data-act like everything else.
+function openDialog(html) {
+  closeDialog();
+  const dlg = document.createElement('dialog');
+  dlg.id = 'dlg';
+  dlg.innerHTML = `<button class="dlg-x secondary small" data-act="closeDialog" aria-label="Close">✕</button>${html}`;
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.appendChild(dlg);
+  dlg.showModal();
+  return dlg;
+}
+
+function closeDialog() {
+  document.getElementById('dlg')?.close();
 }
 
 async function doLogout() {
@@ -289,8 +307,12 @@ async function pageHome() {
           <div class="row" style="margin-top:8px">
             ${t.status === 'setup' ? `<span class="muted small">Waiting for the draft · ${t.teams} teams</span>` : ''}
             ${t.status === 'drafting' ? `<a class="btn gold" href="#/league/${t.league_id}/draft">Enter draft room</a>` : ''}
-            ${['active', 'complete'].includes(t.status) ? `<span>Rank <strong>${t.rank}</strong> of ${t.teams}</span><span class="grow"></span>${pts(t.points)}<span class="muted small">pts</span>` : ''}
+            ${['active', 'complete'].includes(t.status) ? `<span><strong>${t.w}-${t.l}${t.ties ? `-${t.ties}` : ''}</strong> · ${ordinal(t.rank)} of ${t.teams}</span><span class="grow"></span>${pts(t.points)}<span class="muted small">pts</span>` : ''}
           </div>
+          ${t.champion ? `<div class="small" style="margin-top:8px">🏆 Champion: <strong>${esc(t.champion.name)}</strong></div>`
+            : t.matchup && t.status === 'active' ? `<a class="minimatch" href="#/league/${t.league_id}/matchups/${t.week}">
+              <span class="muted small">${t.matchup.label ? esc(t.matchup.label) : `Week ${t.week}`} vs ${esc(t.matchup.opponent)}</span>
+              <span>${t.matchup.state === 'upcoming' ? statusBadge('upcoming') : `${pts(t.matchup.mine)} – ${pts(t.matchup.theirs)}`}</span></a>` : ''}
         </div>`).join('')}</div>` : '<p class="empty">You are not in any leagues yet. Join one below or ask a commissioner to create one.</p>'}
     </div>
 
@@ -300,7 +322,7 @@ async function pageHome() {
         <td class="num"><a href="#/league/${l.id}">Join →</a></td></tr>`).join('')}</tbody></table></div>` : ''}
 
     <div class="grid two">
-      <div class="card"><h2>Coming up</h2>${d.upcoming.map(gameRow).join('') || '<p class="empty">No games scheduled.</p>'}</div>
+      <div class="card"><h2>Live &amp; coming up</h2>${d.upcoming.map(gameRow).join('') || '<p class="empty">No games scheduled.</p>'}</div>
       <div class="card"><h2>Recent results</h2>${d.recent.map(gameRow).join('') || '<p class="empty">No results yet.</p>'}</div>
     </div>`);
   actions.go = (el) => (location.hash = el.dataset.href);
@@ -357,7 +379,10 @@ async function pageSport(key, tab = 'schedule') {
           <div class="field"><label>Season</label><input name="season" placeholder="Fall 2026"></div>
           <div class="field"><label>Players per team</label><input name="roster_size" type="number" min="1" max="20" value="${s.rosterSize}"></div>
           <div class="field"><label>Seconds per pick (0 = no clock)</label><input name="pick_seconds" type="number" min="0" value="90"></div>
+          <div class="field"><label>Regular season weeks</label><input name="regular_weeks" type="number" min="1" max="30" value="${Math.max(1, ...d.games.map((g) => g.week), 1) || 5}"></div>
+          <div class="field"><label>Playoff teams</label><select name="playoff_teams"><option value="4">Top 4 (semis + final)</option><option value="2">Top 2 (final)</option><option value="0">No playoffs</option></select></div>
         </div>
+        <p class="muted small">Fantasy week 1 is intramural week 1. Playoffs use the weeks right after the regular season, so schedule intramural games for those weeks too.</p>
         <button>Create league</button>
       </form>` : ''}`,
 
@@ -594,12 +619,19 @@ async function pagePlayer(id) {
 
 // ---------- League ----------
 
-async function pageLeague(id, tab) {
+async function pageLeague(id, tab, weekParam) {
   const d = await GET(`/api/leagues/${id}`);
   const { league: L, sport: s, myTeam } = d;
-  const tabs = [['standings', 'Standings'], ['rosters', 'Rosters'], ['players', 'Free agents'], ['scoring', 'Scoring'], ['activity', 'Activity']];
-  if (L.status === 'setup') tabs.splice(0, 3, ['setup', 'Draft setup']);
+  const byId = Object.fromEntries(d.standings.map((t) => [t.id, t]));
+  const R = L.regular_weeks;
+  const tabs = [['matchups', 'Matchups'], ['standings', 'Standings'], ['playoffs', 'Playoffs'], ['rosters', 'Rosters'],
+    ['players', 'Free agents'], ['scoring', 'Scoring & settings'], ['activity', 'Activity']];
+  if (!d.playoffs) tabs.splice(2, 1);
+  if (L.status === 'setup' || L.status === 'drafting') tabs.splice(0, tabs.length - 2, ['setup', L.status === 'setup' ? 'Draft setup' : 'Teams']);
   tab = tab && tabs.some(([k]) => k === tab) ? tab : tabs[0][0];
+  const week = Math.min(d.lastWeek, Math.max(1, Number(weekParam) || d.currentWeek || 1));
+  const weekName = (w) => (w <= R ? `Week ${w}` : d.playoffs?.rounds.find((r) => r.week === w)?.name || `Week ${w}`);
+  const gamesInWeek = (w) => (w <= R ? d.matchups.filter((m) => m.week === w) : d.playoffs?.rounds.find((r) => r.week === w)?.games || []);
 
   const drafting = L.status === 'drafting' ? `
     <div class="clock"><div class="who"><strong>The draft is live!</strong>Head to the draft room to make your picks.</div>
@@ -613,18 +645,19 @@ async function pageLeague(id, tab) {
           ${d.standings.length ? `<table><tbody>${[...d.standings].sort((a, b) => a.draft_slot - b.draft_slot).map((t, i, arr) => `
             <tr class="${t.user_id === S.me.id ? 'me' : ''}"><td class="num" style="width:30px">${i + 1}</td>
             <td><strong>${esc(t.name)}</strong><div class="muted small">${esc(t.owner_name)}</div></td>
-            <td class="num">${d.isCommish ? `
+            <td class="num">${d.isCommish && L.status === 'setup' ? `
               <button class="small secondary" data-act="move" data-i="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''}>↑</button>
               <button class="small secondary" data-act="move" data-i="${i}" data-dir="1" ${i === arr.length - 1 ? 'disabled' : ''}>↓</button>` : ''}
-              ${d.isCommish || t.user_id === S.me.id ? `<button class="small danger" data-act="kick" data-id="${t.id}">${t.user_id === S.me.id ? 'Leave' : 'Remove'}</button>` : ''}
+              ${L.status === 'setup' && (d.isCommish || t.user_id === S.me.id) ? `<button class="small danger" data-act="kick" data-id="${t.id}">${t.user_id === S.me.id ? 'Leave' : 'Remove'}</button>` : ''}
             </td></tr>`).join('')}</tbody></table>` : '<p class="empty">Nobody has joined yet.</p>'}
-          ${d.isCommish ? `<div class="row" style="margin-top:12px">
+          ${d.isCommish && L.status === 'setup' ? `<div class="row" style="margin-top:12px">
             <button class="secondary" data-act="randomize">Randomize order</button><span class="grow"></span>
             <button class="gold" data-act="startDraft">Start the draft</button></div>` : ''}
         </div>
         <div class="card">
           ${myTeam ? `<h2>You're in!</h2><p>Your team: <strong>${esc(myTeam.name)}</strong></p>
             <form data-form="rename" class="row"><input name="name" value="${esc(myTeam.name)}" maxlength="40"><button class="secondary">Rename</button></form>`
+            : L.status !== 'setup' ? '<h2>Draft in progress</h2><p class="muted">This league is already drafting, so it is closed to new teams.</p>'
             : `<h2>Join this league</h2><form data-form="join"><div class="field"><label>Team name</label>
               <input name="name" maxlength="40" placeholder="${esc(S.me.display_name)}'s ${esc(s.name)} squad"></div><button class="gold">Join league</button></form>`}
           <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
@@ -633,20 +666,52 @@ async function pageLeague(id, tab) {
             <li>Snake draft: ${d.standings.length || 'N'} teams, ${L.roster_size} rounds. Order flips every round.</li>
             <li>${L.pick_seconds ? `${L.pick_seconds} seconds per pick. If the clock runs out, the best available player is picked for you.` : 'No pick clock.'}</li>
             <li>Every player on your roster scores. After the draft you can add and drop free agents.</li>
+            <li>Head-to-head: you play one team each week for ${R} weeks. Win the week by scoring more fantasy points.</li>
+            <li>${d.playoffs ? `The top ${d.playoffs.size} teams make the playoffs (week ${R + 1}${d.playoffs.size === 4 ? ` and ${R + 2}` : ''}). Ties go to the higher seed.` : 'No playoffs: the best record wins.'}</li>
             <li>Points only count for games that start while the player is on your roster.</li>
           </ul>
         </div>
       </div>`,
 
     standings: () => {
-      const weeks = d.weeks;
+      const cut = d.playoffs?.size || 0;
       return `<div class="card table-wrap"><table>
-        <thead><tr><th>#</th><th>Team</th>${weeks.map((w) => `<th class="num">Wk ${w}</th>`).join('')}<th class="num">Total</th></tr></thead>
-        <tbody>${d.standings.map((t) => `<tr class="${t.user_id === S.me.id ? 'me' : ''}">
+        <thead><tr><th>#</th><th>Team</th><th class="num">W-L-T</th><th class="num">PF</th><th class="num">PA</th><th class="num">Season pts</th></tr></thead>
+        <tbody>${d.standings.map((t) => `<tr class="${t.user_id === S.me.id ? 'me' : ''} ${t.rank === cut && cut < d.standings.length ? 'cutline' : ''}">
           <td>${t.rank}</td><td><strong>${esc(t.name)}</strong><div class="muted small">${esc(t.owner_name)}</div></td>
-          ${weeks.map((w) => `<td class="num">${t.weeks[w] != null ? Number(t.weeks[w]).toFixed(1) : '<span class="muted">–</span>'}</td>`).join('')}
-          <td class="num">${pts(t.points)}</td></tr>`).join('')}</tbody></table></div>
+          <td class="num"><strong>${t.w}-${t.l}${t.t ? `-${t.t}` : ''}</strong></td>
+          <td class="num">${t.pf.toFixed(1)}</td><td class="num">${t.pa.toFixed(1)}</td>
+          <td class="num">${pts(t.points)}</td></tr>`).join('')}</tbody></table>
+        <p class="muted small" style="margin-bottom:0">Ranked by record, then season points. PF and PA count finished head-to-head weeks only.
+          ${cut ? `Teams above the line make the playoffs.` : ''}</p></div>
         ${myTeam ? rosterCard(myTeam, true) : ''}`;
+    },
+
+    matchups: () => {
+      const games = gamesInWeek(week);
+      const playing = new Set(games.flatMap((g) => [g.home_team_id, g.away_team_id]));
+      const byes = week <= R ? d.standings.filter((t) => !playing.has(t.id)) : [];
+      const ws = d.weekStates[week] || {};
+      return `
+        <div class="weekpills">${Array.from({ length: d.lastWeek }, (_, i) => i + 1).map((w) => `
+          <a href="#/league/${L.id}/matchups/${w}" class="${w === week ? 'on' : ''} ${w > R ? 'po' : ''}">${w > R ? esc(weekName(w)) : `Wk ${w}`}${w === d.currentWeek ? ' •' : ''}</a>`).join('')}</div>
+        <p class="muted small">${esc(weekName(week))} · ${ws.games ? `${ws.games} intramural game${ws.games === 1 ? '' : 's'}${ws.first_game ? `, starting ${fmtDate(ws.first_game)}` : ''}` : 'No intramural games scheduled for this week yet.'}
+          ${ws.state === 'live' ? ' Scores update as stats are entered.' : ''}</p>
+        ${games.length ? `<div class="grid cards">${games.map(matchCard).join('')}</div>` : '<div class="card empty">No matchups this week.</div>'}
+        ${byes.length ? `<p class="muted">Bye: ${byes.map((t) => esc(t.name)).join(', ')}</p>` : ''}`;
+    },
+
+    playoffs: () => {
+      const p = d.playoffs;
+      const projected = d.standings.slice(0, p.size);
+      return `
+        ${p.seeded ? '' : `<div class="card"><h2>Playoff picture</h2>
+          <p class="muted">Seeds lock when week ${R} is final. If the season ended today:</p>
+          <ol>${projected.map((t) => `<li><strong>${esc(t.name)}</strong> <span class="muted small">${t.w}-${t.l}${t.t ? `-${t.t}` : ''} · ${t.points.toFixed(1)} pts</span></li>`).join('')}</ol></div>`}
+        <div class="bracket">${p.rounds.map((r) => `<div><h3>${esc(r.name)} <span class="muted small">· week ${r.week}</span></h3>
+          ${r.games.map(matchCard).join('')}</div>`).join('')}
+          ${d.champion ? `<div><h3>Champion</h3><div class="card champ">🏆<strong>${esc(d.champion.name)}</strong><div class="muted small">${esc(d.champion.owner_name)}</div></div></div>` : ''}
+        </div>`;
     },
 
     rosters: () => `<div class="grid cards">${d.standings.map((t) => rosterCard(t, t.user_id === S.me.id)).join('')}</div>`,
@@ -677,7 +742,10 @@ async function pageLeague(id, tab) {
         <div class="field"><label>Season</label><input name="season" value="${esc(L.season || '')}"></div>
         <div class="field"><label>Seconds per pick</label><input name="pick_seconds" type="number" min="0" value="${L.pick_seconds}"></div>
         ${L.status === 'setup' ? `<div class="field"><label>Players per team</label><input name="roster_size" type="number" min="1" max="20" value="${L.roster_size}"></div>` : ''}
+        <div class="field"><label>Regular season weeks</label><input name="regular_weeks" type="number" min="1" max="30" value="${R}"></div>
+        <div class="field"><label>Playoff teams</label><select name="playoff_teams">${options([{ id: 0, name: 'No playoffs' }, { id: 2, name: 'Top 2 (final)' }, { id: 4, name: 'Top 4 (semis + final)' }], L.playoff_teams)}</select></div>
       </div>
+      ${['active', 'complete'].includes(L.status) ? '<p class="muted small">Changing the number of regular season weeks redraws the head-to-head schedule.</p>' : ''}
       <div class="row"><button>Save settings</button><span class="grow"></span>
         ${L.status === 'active' ? '<button type="button" class="secondary" data-act="finish">End season</button>' : ''}
         ${L.status === 'complete' ? '<button type="button" class="secondary" data-act="reopen">Reopen season</button>' : ''}
@@ -694,12 +762,14 @@ async function pageLeague(id, tab) {
       ${statusBadge(L.status === 'complete' ? 'final' : L.status)}
     </div>
     ${drafting}
-    ${L.status === 'complete' && d.standings[0] ? `<div class="card" style="text-align:center"><span style="font-size:2rem">🏆</span><h2>${esc(d.standings[0].name)} wins the season!</h2><p class="muted">${esc(d.standings[0].owner_name)} · ${d.standings[0].points.toFixed(1)} points</p></div>` : ''}
+    ${d.champion ? `<div class="card" style="text-align:center"><span style="font-size:2rem">🏆</span><h2>${esc(d.champion.name)} ${L.status === 'complete' ? 'won' : 'wins'} the ${esc(s.name.toLowerCase())} title!</h2>
+      <p class="muted">${esc(d.champion.owner_name)} · ${d.champion.points.toFixed(1)} season points</p>
+      ${d.isCommish && L.status === 'active' ? '<button class="secondary" data-act="finish">End the season</button>' : ''}</div>` : ''}
     <div class="tabs">${tabs.map(([k, label]) => `<a href="#/league/${L.id}/${k}" class="${k === tab ? 'on' : ''}">${label}</a>`).join('')}
       ${['drafting', 'active', 'complete'].includes(L.status) ? `<a href="#/league/${L.id}/draft">Draft board</a>` : ''}</div>
     ${body[tab]()}`);
 
-  const reload = () => pageLeague(id, tab);
+  const reload = () => pageLeague(id, tab, weekParam);
   forms.join = async (f) => { await POST(`/api/leagues/${L.id}/join`, f); toast('Welcome to the league!'); reload(); };
   forms.rename = async (f) => { await PUT(`/api/leagues/${L.id}/teams/${myTeam.id}`, f); toast('Renamed'); reload(); };
   forms.scoring = async (f) => { await PUT(`/api/leagues/${L.id}`, { scoring: f }); toast('Scoring saved'); reload(); };
@@ -728,19 +798,33 @@ async function pageLeague(id, tab) {
     toast(`Dropped ${el.dataset.name}`);
     reload();
   };
-  actions.add = async (el) => {
-    let drop_id = null;
-    if (myTeam.players.length >= L.roster_size) {
-      const list = myTeam.players.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
-      const pick = prompt(`Your roster is full. Who do you want to drop for ${el.dataset.name}? Type the number:\n\n${list}`);
-      if (!pick) return;
-      const p = myTeam.players[Number(pick) - 1];
-      if (!p) return toast('That number is not on the list.', true);
-      drop_id = p.athlete_id;
-    }
-    await POST(`/api/leagues/${L.id}/transactions`, { add_id: el.dataset.id, drop_id });
-    toast(`Added ${el.dataset.name}`);
+  async function addPlayer(addId, name, dropId) {
+    await POST(`/api/leagues/${L.id}/transactions`, { add_id: addId, drop_id: dropId });
+    closeDialog();
+    toast(`Added ${name}`);
     reload();
+  }
+  actions.add = async (el) => {
+    if (myTeam.players.length < L.roster_size) return addPlayer(el.dataset.id, el.dataset.name, null);
+    openDialog(`<h2>Add ${esc(el.dataset.name)}</h2><p class="muted">Your roster is full. Pick who to drop.</p>
+      <div class="stack">${myTeam.players.map((p) => `<button class="secondary droppick" data-act="confirmAdd" data-add="${esc(el.dataset.id)}" data-name="${esc(el.dataset.name)}" data-drop="${p.athlete_id}">
+        Drop <strong>${esc(p.name)}</strong> <span class="muted small">${esc(p.position || '')} · ${Number(p.points).toFixed(1)} pts</span></button>`).join('')}</div>`);
+  };
+  actions.confirmAdd = (el) => addPlayer(el.dataset.add, el.dataset.name, el.dataset.drop);
+  actions.detail = (el) => {
+    const w = Number(el.dataset.week);
+    const col = (t) => {
+      const got = t.byWeek[w] || {};
+      const rows = [...Object.values(got)];
+      for (const p of t.players) if (!got[p.athlete_id]) rows.push({ ...p, points: 0 });
+      rows.sort((a, b) => b.points - a.points);
+      const total = rows.reduce((sum, r) => sum + r.points, 0);
+      return `<div><h3>${esc(t.name)} <span class="grow"></span></h3><table><tbody>${rows.map((r) => `<tr>
+        <td><a href="#/player/${r.athlete_id}">${esc(r.name)}</a> <span class="muted small">${esc(r.position || '')}${r.dropped ? ' · dropped' : ''}</span></td>
+        <td class="num">${pts(r.points)}</td></tr>`).join('') || '<tr><td class="empty">No players.</td></tr>'}
+        <tr><td><strong>Total</strong></td><td class="num">${pts(total)}</td></tr></tbody></table></div>`;
+    };
+    openDialog(`<h2>${esc(weekName(w))}</h2><div class="grid two">${col(byId[el.dataset.a])}${col(byId[el.dataset.h])}</div>`);
   };
   actions.finish = async () => {
     if (!confirm('End the season and crown the champion?')) return;
@@ -754,11 +838,28 @@ async function pageLeague(id, tab) {
     location.hash = `#/sport/${L.sport}/leagues`;
   };
 
+  function matchCard(m) {
+    const h = byId[m.home_team_id], a = byId[m.away_team_id];
+    const mine = myTeam && (m.home_team_id === myTeam.id || m.away_team_id === myTeam.id);
+    const showPts = m.state !== 'upcoming';
+    const side = (t, p, seed) => `<div class="mside ${m.winner && t && m.winner === t.id ? 'win' : ''}">
+      <span>${seed ? `<span class="seed">${seed}</span>` : ''}${t ? `<strong>${esc(t.name)}</strong>` : '<span class="muted">TBD</span>'}
+        ${t ? `<div class="muted small">${esc(t.owner_name)} · ${t.w}-${t.l}${t.t ? `-${t.t}` : ''}</div>` : ''}</span>
+      <span class="mscore">${showPts && t ? Number(p).toFixed(1) : ''}</span></div>`;
+    return `<div class="card match ${mine ? 'mine' : ''}">
+      <div class="row small muted"><span>${m.label ? `${esc(m.label)} · ` : ''}${m.week <= R ? `Week ${m.week}` : `Week ${m.week}`}</span><span class="grow"></span>${statusBadge(m.state)}</div>
+      ${m.kind === 'playoff'
+        ? side(h, m.home_points, m.home_seed) + side(a, m.away_points, m.away_seed)
+        : side(a, m.away_points, m.away_seed) + side(h, m.home_points, m.home_seed)}
+      ${h && a ? `<a href="#" class="small" data-act="detail" data-week="${m.week}" data-h="${h.id}" data-a="${a.id}">${showPts ? 'See player points' : 'See rosters'}</a>` : ''}
+    </div>`;
+  }
+
   function rosterCard(t, mine) {
     const canDrop = mine && L.status === 'active';
     return `<div class="card">
       <div class="row"><h3 style="margin:0">${esc(t.name)}</h3><span class="grow"></span>${pts(t.points)}</div>
-      <div class="muted small" style="margin-bottom:8px">${esc(t.owner_name)} · Rank ${t.rank}</div>
+      <div class="muted small" style="margin-bottom:8px">${esc(t.owner_name)} · ${L.status === 'setup' || L.status === 'drafting' ? '' : `${t.w}-${t.l}${t.t ? `-${t.t}` : ''} · Rank ${t.rank}`}</div>
       <table><tbody>${t.players.map((p) => `<tr><td><a href="#/player/${p.athlete_id}">${esc(p.name)}</a>
         <div class="muted small">${esc(p.position || '')} ${p.team_name ? `· ${esc(p.team_name)}` : ''}</div></td>
         <td class="num">${pts(p.points)}</td>
@@ -842,6 +943,7 @@ async function pageDraft(id) {
     }
     const on = d.state.onClock;
     const mine = on.id === d.myTeamId;
+    document.title = mine && !d.league.draft_paused ? '⏰ Your pick! · ΧΛΦ Fantasy' : 'Draft room · ΧΛΦ Fantasy';
     const pickInRound = ((d.state.picksMade) % d.state.teams) + 1;
     el.innerHTML = `<div class="clock ${mine ? 'mine' : ''}">
       <div class="timer" id="timer">${d.league.pick_seconds ? '' : '∞'}</div>
@@ -932,7 +1034,7 @@ async function pageDraft(id) {
   await load();
   const poll = setInterval(load, 2500);
   const timer = setInterval(tick, 250);
-  onCleanup(() => { clearInterval(poll); clearInterval(timer); });
+  onCleanup(() => { clearInterval(poll); clearInterval(timer); document.title = 'ΧΛΦ Fantasy'; });
 }
 
 // ---------- Admin ----------

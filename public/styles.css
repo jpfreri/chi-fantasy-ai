@@ -230,3 +230,32 @@ input.stat { width: 58px; padding: 4px 6px; text-align: right; }
   #nav .spacer, #nav .who { display: none; }
   .scoreboard .score { font-size: 2rem; }
 }
+
+/* Head-to-head */
+.match { margin: 0; }
+.match.mine { border-color: var(--accent); box-shadow: 0 0 0 2px #f6e3a6 inset; }
+.mside { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.mside:last-of-type { border-bottom: 0; margin-bottom: 6px; }
+.mside .mscore { font-size: 1.4rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--muted); }
+.mside.win .mscore { color: var(--text); }
+.mside.win strong::after { content: " ✓"; color: var(--good); }
+.seed { display: inline-block; min-width: 20px; padding: 0 5px; margin-right: 6px; border-radius: 6px; background: var(--brand); color: #fff; font-size: .75rem; text-align: center; }
+.weekpills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.weekpills a { padding: 5px 11px; border-radius: 999px; background: #fff; border: 1px solid var(--line); color: var(--muted); font-size: .88rem; }
+.weekpills a.po { border-color: var(--accent); }
+.weekpills a.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.weekpills a:hover { text-decoration: none; }
+tr.cutline td { border-bottom: 2px dashed var(--accent); }
+.bracket { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; align-items: center; }
+.bracket .match { margin-bottom: 14px; }
+.champ { text-align: center; font-size: 2rem; }
+.champ strong { display: block; font-size: 1.1rem; }
+.minimatch { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: #f6f7fb; color: var(--text); }
+.minimatch > span:last-child { white-space: nowrap; }
+.minimatch:hover { text-decoration: none; background: #eef0f8; }
+.badge.upcoming, .badge.scheduled { background: #eef0f6; color: var(--muted); }
+
+dialog { border: 0; border-radius: var(--radius); padding: 22px; width: min(720px, calc(100vw - 32px)); max-height: 85vh; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+dialog::backdrop { background: rgba(20, 24, 40, .45); }
+.dlg-x { float: right; }
+.droppick { display: block; width: 100%; text-align: left; }

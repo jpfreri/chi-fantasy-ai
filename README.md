@@ -16,7 +16,7 @@ With the demo data, log in as `commish` (admin) or `jake`, `sam`, `luke`, `eli`,
 
 Without the demo data, the first account you create becomes the commissioner (admin).
 
-`npm test` runs the API tests (draft order, turn rules, auto-pick, scoring, add/drop).
+`npm test` runs the API tests (draft order, turn rules, auto-pick, scoring, add/drop, head-to-head records, playoffs).
 
 ## How a season works
 
@@ -26,6 +26,12 @@ Without the demo data, the first account you create becomes the commissioner (ad
 4. **League page:** set or randomize the draft order, then start the draft. The draft room updates live for everyone. When a pick clock runs out, the server drafts the best available player.
 5. **After each game:** open it, choose **Enter score & stats**, type the box score and set the game to final. Standings update right away.
 6. After the draft, managers can add and drop free agents. A player's points only count for games that start while they are on your roster.
+
+### Head-to-head and playoffs
+
+Fantasy week N is intramural week N. When the draft ends, the app draws a round-robin schedule for the regular season (with a bye each week if the number of teams is odd). Each week you win if your players score more fantasy points than your opponent's. A week is final once every intramural game in it is marked final.
+
+Standings rank teams by record, then by season points. The top 4 (or top 2) make the playoffs, which use the intramural weeks right after the regular season: semifinals (1 vs 4, 2 vs 3) and then a championship. Ties in the playoffs go to the higher seed. The commissioner sets the regular season length and playoff size under **Scoring & settings**. Changing the season length redraws the schedule.
 
 Each league has its own scoring rules (points per stat), which the commissioner can change at any time. Everything recalculates from the raw stats.
 
@@ -52,4 +58,4 @@ It is one Node process and one SQLite file, so any host that runs Node and keeps
 
 ## Ideas for polishing
 
-Head-to-head weekly matchups and playoffs, starting lineups, trades, draft queues, a stat keeper role, push notifications, seasons that archive old games, league chat.
+Starting lineups, trades, draft queues, a stat keeper role, push notifications, seasons that archive old games, league chat.

@@ -112,6 +112,39 @@ test('scoring follows league rules and only counts games while rostered', async 
   assert.equal(lg.data.myTeam.points, 29); // Ann 23 + Dan 6
 });
 
+test('head-to-head records, playoff seeding and a champion', async () => {
+  await admin('PUT', `/api/leagues/${ids.league}`, { regular_weeks: 1, playoff_teams: 2 });
+  let lg = await bob('GET', `/api/leagues/${ids.league}`);
+  assert.equal(lg.data.matchups.length, 1, 'two teams play once in a 1-week season');
+  const me = lg.data.standings.find((t) => t.name === 'Bobcats');
+  assert.deepEqual([me.w, me.l, me.pf], [1, 0, 29]);
+  assert.equal(lg.data.standings[0].name, 'Bobcats');
+  const final = lg.data.playoffs.rounds[0].games[0];
+  assert.equal(lg.data.playoffs.seeded, true);
+  assert.equal(final.week, 2);
+  assert.equal(final.state, 'upcoming');
+  assert.equal(lg.data.champion, null);
+
+  // Week 2 is the championship. Cal's player scores, Bob's do not.
+  const g = await admin('POST', '/api/games', { sport: 'basketball', week: 2, home_team_id: ids.t1, away_team_id: ids.t2, starts_at: new Date().toISOString(), status: 'final', home_score: 1, away_score: 2 });
+  await admin('PUT', `/api/games/${g.data.id}/stats`, { rows: [{ athlete_id: ids.ath.Cat, stats: { pts: 10 } }] });
+  lg = await bob('GET', `/api/leagues/${ids.league}`);
+  assert.equal(lg.data.champion.name, 'Cals');
+});
+
+test('round robin gives every team one game a week and covers every pairing', () => {
+  const { roundRobin } = require('../src/fantasy');
+  const weeks = roundRobin([1, 2, 3, 4, 5], 5);
+  const seen = new Set();
+  for (const pairs of weeks) {
+    const teams = pairs.flat();
+    assert.equal(new Set(teams).size, teams.length, 'nobody plays twice in a week');
+    assert.equal(pairs.length, 2, 'one bye with 5 teams');
+    for (const [a, b] of pairs) seen.add([a, b].sort().join('-'));
+  }
+  assert.equal(seen.size, 10);
+});
+
 test('the server auto-picks when the clock runs out', async () => {
   const l = await admin('POST', '/api/leagues', { sport: 'basketball', name: 'Clock League', roster_size: 1, pick_seconds: 30 });
   await bob('POST', `/api/leagues/${l.data.id}/join`, {});

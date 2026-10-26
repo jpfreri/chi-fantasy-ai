@@ -56,7 +56,7 @@ function standings(league) {
   const byAthlete = {};
   for (const l of lines) (byAthlete[l.athlete_id] ||= []).push(l);
 
-  const teams = leagueTeams(league.id).map((t) => ({ ...t, points: 0, weeks: {}, players: [] }));
+  const teams = leagueTeams(league.id).map((t) => ({ ...t, points: 0, weeks: {}, players: [], byWeek: {} }));
   const teamById = Object.fromEntries(teams.map((t) => [t.id, t]));
   const entries = all(
     `SELECT r.*, a.name, a.position, it.name AS team_name
@@ -78,6 +78,9 @@ function standings(league) {
       const p = scoreLine(l.stats, league.scoring);
       pts += p;
       team.weeks[l.week] = (team.weeks[l.week] || 0) + p;
+      const wk = (team.byWeek[l.week] ||= {});
+      const c = (wk[e.athlete_id] ||= { athlete_id: e.athlete_id, name: e.name, position: e.position, points: 0, dropped: !!e.dropped_at });
+      c.points = Math.round((c.points + p) * 100) / 100;
     }
     pts = Math.round(pts * 100) / 100;
     team.points += pts;
@@ -95,6 +98,145 @@ function standings(league) {
   teams.sort((a, b) => b.points - a.points);
   teams.forEach((t, i) => (t.rank = i + 1));
   return teams;
+}
+
+// ---------- Head-to-head ----------
+
+// Circle-method round robin. With an odd number of teams, one team has a bye each week.
+function roundRobin(teamIds, weeks) {
+  const ids = [...teamIds];
+  if (ids.length % 2) ids.push(null);
+  const n = ids.length;
+  const rounds = [];
+  for (let r = 0; r < n - 1; r++) {
+    const pairs = [];
+    for (let i = 0; i < n / 2; i++) {
+      const a = ids[i], b = ids[n - 1 - i];
+      if (a && b) pairs.push(r % 2 ? [b, a] : [a, b]);
+    }
+    rounds.push(pairs);
+    ids.splice(1, 0, ids.pop());
+  }
+  return Array.from({ length: weeks }, (_, w) => rounds[w % rounds.length] || []);
+}
+
+function generateSchedule(league) {
+  run('DELETE FROM matchups WHERE league_id = ?', league.id);
+  const teams = draftOrder(league.id).map((t) => t.id);
+  roundRobin(teams, league.regular_weeks).forEach((pairs, i) => {
+    for (const [h, a] of pairs) {
+      run('INSERT INTO matchups (league_id, week, home_team_id, away_team_id) VALUES (?, ?, ?, ?)', league.id, i + 1, h, a);
+    }
+  });
+}
+
+// Fantasy week N is intramural week N. A week is final once every game in it is final.
+function weekStatus(sport) {
+  const out = {};
+  for (const r of all(
+    `SELECT week, COUNT(*) AS games, SUM(status = 'final') AS final, SUM(status != 'scheduled') AS started,
+            MIN(starts_at) AS first_game
+       FROM games WHERE sport = ? GROUP BY week`,
+    sport
+  )) {
+    out[r.week] = { ...r, state: r.final === r.games ? 'final' : r.started > 0 ? 'live' : 'upcoming' };
+  }
+  return out;
+}
+
+function defaultRegularWeeks(sport) {
+  return one('SELECT MAX(week) AS w FROM games WHERE sport = ?', sport).w || 5;
+}
+
+function playoffSize(league, teamCount) {
+  if (league.playoff_teams >= 4 && teamCount >= 4) return 4;
+  if (league.playoff_teams >= 2 && teamCount >= 2) return 2;
+  return 0;
+}
+
+// Standings, the weekly schedule with scores, the playoff bracket and the champion, in one place.
+function leagueView(league) {
+  const teams = standings(league);
+  const byId = Object.fromEntries(teams.map((t) => [t.id, t]));
+  const weeks = weekStatus(league.sport);
+  const live = ['active', 'complete'].includes(league.status);
+  if (live && !one('SELECT 1 FROM matchups WHERE league_id = ?', league.id)) generateSchedule(league);
+
+  const score = (teamId, week) => Math.round((byId[teamId]?.weeks[week] || 0) * 100) / 100;
+  const stateOf = (week) => weeks[week]?.state || 'upcoming';
+  const game = (week, home, away, extra = {}) => {
+    const g = {
+      week, state: stateOf(week), home_team_id: home?.id ?? null, away_team_id: away?.id ?? null,
+      home_points: home ? score(home.id, week) : null, away_points: away ? score(away.id, week) : null, ...extra,
+    };
+    if (g.state === 'final' && home && away) {
+      g.winner = g.home_points > g.away_points ? home.id : g.away_points > g.home_points ? away.id : extra.tiebreak ?? null;
+    }
+    return g;
+  };
+
+  for (const t of teams) Object.assign(t, { w: 0, l: 0, t: 0, pf: 0, pa: 0 });
+  const matchups = live
+    ? all('SELECT * FROM matchups WHERE league_id = ? ORDER BY week, id', league.id).map((m) =>
+        game(m.week, byId[m.home_team_id], byId[m.away_team_id], { id: m.id, kind: 'regular' }))
+    : [];
+  for (const m of matchups) {
+    if (m.state !== 'final') continue;
+    const h = byId[m.home_team_id], a = byId[m.away_team_id];
+    if (!h || !a) continue;
+    h.pf += m.home_points; h.pa += m.away_points; a.pf += m.away_points; a.pa += m.home_points;
+    if (m.home_points === m.away_points) { h.t++; a.t++; }
+    else if (m.home_points > m.away_points) { h.w++; a.l++; }
+    else { a.w++; h.l++; }
+  }
+  const pct = (t) => (t.w + t.l + t.t ? (t.w + t.t / 2) / (t.w + t.l + t.t) : 0);
+  teams.sort((a, b) => pct(b) - pct(a) || b.w - a.w || b.points - a.points);
+  teams.forEach((t, i) => {
+    t.rank = i + 1;
+    t.pf = Math.round(t.pf * 100) / 100;
+    t.pa = Math.round(t.pa * 100) / 100;
+  });
+
+  const R = league.regular_weeks;
+  const regularDone = live && Array.from({ length: R }, (_, i) => stateOf(i + 1)).every((s) => s === 'final');
+  const size = playoffSize(league, teams.length);
+  let playoffs = null;
+  let champion = null;
+  if (size) {
+    const seeds = regularDone ? teams.slice(0, size) : [];
+    const seedOf = (t) => (t ? seeds.indexOf(t) + 1 : null);
+    // Ties in the playoffs go to the higher seed.
+    const pgame = (week, hi, lo, label) => ({ ...game(week, hi, lo, { tiebreak: hi?.id, kind: 'playoff', label }), home_seed: seedOf(hi), away_seed: seedOf(lo) });
+    const winnerOf = (g) => (g.winner ? byId[g.winner] : null);
+    const rounds = [];
+    if (size === 4) {
+      const semis = [pgame(R + 1, seeds[0], seeds[3], 'Semifinal'), pgame(R + 1, seeds[1], seeds[2], 'Semifinal')];
+      const [w1, w2] = semis.map(winnerOf);
+      // The better seed is listed first in the final.
+      const [hi, lo] = w1 && w2 ? [w1, w2].sort((a, b) => seedOf(a) - seedOf(b)) : [w1, w2];
+      rounds.push({ name: 'Semifinals', week: R + 1, games: semis });
+      rounds.push({ name: 'Championship', week: R + 2, games: [pgame(R + 2, hi, lo, 'Championship')] });
+    } else {
+      rounds.push({ name: 'Championship', week: R + 1, games: [pgame(R + 1, seeds[0], seeds[1], 'Championship')] });
+    }
+    const final = rounds[rounds.length - 1].games[0];
+    champion = winnerOf(final);
+    playoffs = { size, rounds, seeded: regularDone };
+  } else if (regularDone) {
+    champion = teams[0] || null;
+  }
+
+  const lastWeek = R + (size === 4 ? 2 : size === 2 ? 1 : 0);
+  let currentWeek = lastWeek;
+  for (let w = 1; w <= lastWeek; w++) {
+    if (stateOf(w) !== 'final') { currentWeek = w; break; }
+  }
+
+  return {
+    teams, matchups, playoffs, regularDone, lastWeek, currentWeek,
+    champion: champion ? { id: champion.id, name: champion.name, owner_name: champion.owner_name, points: champion.points } : null,
+    weeks: Object.fromEntries(Array.from({ length: lastWeek }, (_, i) => [i + 1, weeks[i + 1] || { state: 'upcoming', games: 0 }])),
+  };
 }
 
 function log(leagueId, text) {
@@ -207,5 +349,5 @@ function httpError(status, message) {
 
 module.exports = {
   EPOCH, sportStatLines, athleteTotals, athletesWithPoints, getLeague, leagueTeams, standings, log,
-  draftOrder, draftState, availableAthletes, makePick, processExpiredPicks, httpError,
+  draftOrder, draftState, leagueView, generateSchedule, defaultRegularWeeks, roundRobin, availableAthletes, makePick, processExpiredPicks, httpError,
 };
