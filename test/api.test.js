@@ -11,7 +11,8 @@ const { run } = require('../src/db');
 
 let server, base;
 before(() => new Promise((ok) => { server = app.listen(0, () => { base = `http://localhost:${server.address().port}`; ok(); }); }));
-after(() => { server.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+// Windows keeps the open SQLite file locked, so leaving the temp folder behind there is fine.
+after(() => { server.close(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} });
 
 function client() {
   let cookie = '';
@@ -206,7 +207,7 @@ test('Google sign-in creates or links an account and makes ADMIN_EMAILS admins',
   });
   await new Promise((ok) => fake.listen(0, ok));
   // The server reads these env vars at load, so start a second copy of the app with Google turned on.
-  for (const k of Object.keys(require.cache)) if (k.includes('/src/server')) delete require.cache[k];
+  for (const k of Object.keys(require.cache)) if (/[\\/]src[\\/]server/.test(k)) delete require.cache[k];
   Object.assign(process.env, { GOOGLE_CLIENT_ID: 'cid', GOOGLE_CLIENT_SECRET: 'sec', ADMIN_EMAILS: 'Boss@Example.com',
     GOOGLE_TOKEN_URL: `http://localhost:${fake.address().port}/token` });
   const gapp = require('../src/server');
