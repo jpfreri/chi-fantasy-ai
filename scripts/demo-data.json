@@ -87,6 +87,7 @@
    "JT Howard": "B",
    "James Miller": "B",
    "Cannon Poore": "B",
+   "Jeremiah Lorance": "B",
    "Brayden Thompson": "B",
    "Nathyn McCrea": "B",
    "Jaxon Santos": "B",
@@ -96,33 +97,8 @@
    "Shepard Schuermann": "B",
    "Carson Mauck": "B",
    "Grayson Harrod": "B",
-   "Jeremiah Lorance": "B",
    "Carsen Hitt": "A",
    "Quinten Talamantes": "B"
-  },
-  "basketball": {
-   "Landon Parker": "A",
-   "Quin Martin": "A",
-   "Blake Smith": "A",
-   "Zion Cripps": "A",
-   "Luke Patterson": "B",
-   "Connor Wingert": "B",
-   "Jaxon Santos": "B",
-   "Cotter Hensal": "B",
-   "Owen Hohmann": "B",
-   "Asaiah Macon": "B",
-   "Jacob McWatters": "C",
-   "Noah Page": "C",
-   "Caleb Bartee": "C",
-   "Nathyn McCrea": "C",
-   "Reid Miller": "C",
-   "Tyler Utley": "C",
-   "Gabe Dittmeyer": "C",
-   "JT Howard": "C",
-   "Cannon Poore": "C",
-   "Zane Wasson": "C",
-   "Braxton Driskill": "C",
-   "Shepard Schuermann": "C"
   }
  },
  "positions": {
@@ -142,6 +118,7 @@
    "JT Howard": "WR",
    "James Miller": "DB",
    "Cannon Poore": "WR",
+   "Jeremiah Lorance": "WR",
    "Brayden Thompson": "DB",
    "Nathyn McCrea": "DB",
    "Jaxon Santos": "WR",
@@ -298,6 +275,7 @@
    "JT Howard": {},
    "James Miller": {},
    "Cannon Poore": {},
+   "Jeremiah Lorance": {},
    "Brayden Thompson": {},
    "Nathyn McCrea": {},
    "Jaxon Santos": {},
@@ -306,155 +284,7 @@
    "Tyler Utley": {},
    "Shepard Schuermann": {},
    "Carson Mauck": {}
-  },
-  "basketball": {
-   "Landon Parker": {
-    "pts": 23,
-    "threes": 4,
-    "ast": 14,
-    "reb": 22,
-    "stl": 11,
-    "tov": 16
-   },
-   "Quin Martin": {
-    "pts": 25,
-    "threes": 1,
-    "ast": 2,
-    "reb": 18,
-    "stl": 3,
-    "tov": 3
-   },
-   "Blake Smith": {
-    "pts": 47,
-    "threes": 5,
-    "ast": 2,
-    "reb": 37,
-    "blk": 7,
-    "stl": 5,
-    "tov": 3
-   },
-   "Zion Cripps": {
-    "pts": 22,
-    "threes": 6,
-    "reb": 7,
-    "stl": 2,
-    "tov": 6
-   },
-   "Luke Patterson": {
-    "pts": 7,
-    "threes": 1,
-    "ast": 5,
-    "reb": 2,
-    "stl": 1
-   },
-   "Connor Wingert": {
-    "pts": 6,
-    "ast": 1,
-    "reb": 1,
-    "stl": 1
-   },
-   "Jaxon Santos": {
-    "pts": 3,
-    "threes": 1,
-    "reb": 2,
-    "stl": 1
-   },
-   "Cotter Hensal": {},
-   "Owen Hohmann": {
-    "pts": 2,
-    "ast": 2,
-    "stl": 1
-   },
-   "Asaiah Macon": {
-    "pts": 2,
-    "ast": 1
-   },
-   "Jacob McWatters": {
-    "pts": 4,
-    "ast": 1,
-    "reb": 4,
-    "blk": 1,
-    "tov": 7
-   },
-   "Noah Page": {
-    "pts": 2,
-    "reb": 2,
-    "blk": 1,
-    "tov": 1
-   },
-   "Caleb Bartee": {
-    "pts": 6,
-    "threes": 2,
-    "reb": 3,
-    "stl": 1,
-    "tov": 3
-   },
-   "Nathyn McCrea": {
-    "pts": 2,
-    "ast": 3,
-    "reb": 3,
-    "stl": 1,
-    "tov": 7
-   },
-   "Reid Miller": {
-    "pts": 5,
-    "threes": 1,
-    "ast": 1,
-    "reb": 7,
-    "stl": 4,
-    "tov": 1
-   },
-   "Tyler Utley": {
-    "pts": 12,
-    "ast": 1,
-    "reb": 6,
-    "stl": 5,
-    "tov": 1
-   },
-   "Gabe Dittmeyer": {
-    "stl": 2,
-    "tov": 3
-   },
-   "JT Howard": {
-    "reb": 1
-   },
-   "Cannon Poore": {
-    "pts": 3,
-    "reb": 4,
-    "tov": 3
-   },
-   "Zane Wasson": {
-    "pts": 6,
-    "reb": 5,
-    "stl": 1,
-    "tov": 1
-   },
-   "Braxton Driskill": {},
-   "Shepard Schuermann": {}
   }
  },
- "basketball_gp": {
-  "Landon Parker": 4,
-  "Quin Martin": 4,
-  "Blake Smith": 4,
-  "Zion Cripps": 4,
-  "Luke Patterson": 1,
-  "Connor Wingert": 1,
-  "Jaxon Santos": 1,
-  "Cotter Hensal": 0,
-  "Owen Hohmann": 1,
-  "Asaiah Macon": 1,
-  "Jacob McWatters": 3,
-  "Noah Page": 2,
-  "Caleb Bartee": 2,
-  "Nathyn McCrea": 3,
-  "Reid Miller": 3,
-  "Tyler Utley": 3,
-  "Gabe Dittmeyer": 2,
-  "JT Howard": 2,
-  "Cannon Poore": 3,
-  "Zane Wasson": 3,
-  "Braxton Driskill": 3,
-  "Shepard Schuermann": 1
- }
+ "basketball_gp": {}
 }

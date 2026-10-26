@@ -1,8 +1,10 @@
 // Fills a fresh database with demo data built from the club's real roster, stat sheets and schedules:
 // scripts/demo-data.json (2026-27 directory names, team letters and season stat totals) and
 // scripts/schedules-2026-27.json (the softball, flag football and volleyball schedules).
+// Names on the stat sheets that are not in the directory are graduates and are left out.
 // The sheets only have season totals, so each player's totals are split across the games at random.
-// The totals add up exactly; the game-by-game split, and basketball's games, are made up.
+// The totals add up exactly; the game-by-game split is made up. Only the "Softball 26" and
+// "Football 26" sheets are used: volleyball, basketball and soccer have not been played yet.
 // Usage: npm run seed   (wipes the database first)
 const fs = require('fs');
 const path = require('path');
@@ -51,7 +53,8 @@ function split(total, games) {
 const CLUB = {
   softball: { teams: { A: [1, true], B: [0.75, false] }, rest: 'B' },
   flag_football: { teams: { A: [1, true], B: [0.75, true], B2: [0.5, false] }, rest: 'B2' },
-  volleyball: { teams: { A: [1, true], B: [0.75, true], C: [0.5, false] }, rest: 'C' },
+  // Volleyball, basketball and soccer have not started: their rosters are left for an admin to fill in.
+  volleyball: { teams: { A: [1, true], B: [0.75, true], C: [0.5, false] }, rest: null },
   basketball: { teams: { A: [1, true], B: [0.75, true], C: [0.5, true] }, rest: null },
   soccer: { teams: { A: [1, true] }, rest: null },
 };
@@ -94,15 +97,8 @@ for (const [sport, club] of Object.entries(CLUB)) {
       sport, name, DATA.positions[sport]?.[name] || null, letter ? teamId(`Chi ${letter}`) : null).lastInsertRowid);
   }
 
-  // Games: the real 26-27 schedule where there is one. Basketball has none yet, so its demo games
-  // (last season's stats) are dated early 2026 against a placeholder opponent.
-  const games = SCHEDULES[sport] || (sport === 'basketball'
-    ? [['A', 1], ['A', 2], ['A', 3], ['A', 4], ['B', 1], ['C', 1], ['C', 2], ['C', 3]].map(([letter, week]) => ({
-        home: `Chi ${letter}`, away: 'Opponent (TBD)', week, location: 'RAC',
-        starts_at: new Date(Date.UTC(2026, 0, 12 + (week - 1) * 7, 2 + ['A', 'B', 'C'].indexOf(letter))).toISOString(),
-        note: 'Demo game for 2025-26 basketball: real season totals split across games at random.',
-      }))
-    : []);
+  // Games: the real 26-27 schedule where there is one (none yet for basketball and soccer).
+  const games = SCHEDULES[sport] || [];
   const clubGames = {};
   for (const g of games) {
     const status = new Date(g.starts_at) < new Date(now) ? 'final' : 'scheduled';
@@ -136,8 +132,8 @@ for (const [sport, club] of Object.entries(CLUB)) {
 const leagues = {
   softball: { state: 'complete', weeks: 3, playoffs: 0, season: '2026-27' },
   flag_football: { state: 'active', weeks: 2, playoffs: 0, season: '2026-27' },
-  volleyball: { state: 'drafting', weeks: 2, playoffs: 2, season: '2026-27' },
-  basketball: { state: 'active', weeks: 2, playoffs: 2, season: '2025-26 (demo)' },
+  volleyball: { state: 'setup', weeks: 2, playoffs: 2, season: '2026-27' },
+  basketball: { state: 'setup', weeks: 5, playoffs: 4, season: '2026-27' },
   soccer: { state: 'setup', weeks: 5, playoffs: 4, season: '2026-27' },
 };
 const teamNames = ['Scotsmen Supreme', 'Holy Rollers', 'Bench Warmers', 'Pick Six Prophets', 'Fast Break Fellowship'];

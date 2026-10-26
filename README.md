@@ -14,7 +14,7 @@ npm start        # http://localhost:3000
 
 With the demo data, log in as `commish` (admin) or `jp`, `quin`, `brody`, `steven`. Every password is `password`.
 
-The demo data is built from the club's own files: the 2026-27 directory (names and flag football A/B teams only), the intramural stat sheets and the 26-27 softball, flag football and volleyball schedules. They live in `scripts/demo-data.json` and `scripts/schedules-2026-27.json`. The sheets only have season totals, so the seed spreads each player's totals over his team's games at random; the totals add up exactly. Basketball has no 26-27 schedule yet, so its demo games use last season's stats against a placeholder opponent.
+The demo data is built from the club's own files: the 2026-27 directory (names and flag football A/B teams only), the intramural stat sheets and the 26-27 softball, flag football and volleyball schedules. They live in `scripts/demo-data.json` and `scripts/schedules-2026-27.json`. Only this season's sheets ("Softball 26", "Football 26") are used, and names not in the directory (graduates) are left out. The sheets only have season totals, so the seed spreads each player's totals over his team's games at random; the totals add up exactly. Volleyball, basketball and soccer have not started, so their rosters and stats are empty for an admin to fill in.
 
 Without the demo data, the first account you create becomes the commissioner (admin).
 
@@ -31,7 +31,7 @@ Without the demo data, the first account you create becomes the commissioner (ad
 
 ### Chi teams and tiers
 
-Chi fields several teams per sport (for example Chi A, Chi B and Chi B2 in flag football). On a sport's **Manage** tab each team can be marked as counting for intramural points or not, and each has a fantasy multiplier: a player's fantasy points from a game are multiplied by the multiplier of the team he played for. The demo uses A ×1, B ×0.75, and the non-points teams (Softball B, Flag Football B2, Volleyball C) ×0.5. Members who are not on a listed roster go on the sport's non-points team.
+Chi fields several teams per sport (for example Chi A, Chi B and Chi B2 in flag football). On a sport's **Manage** tab each team can be marked as counting for intramural points or not, and each has a fantasy multiplier: a player's fantasy points from a game are multiplied by the multiplier of the team he played for. The demo uses A ×1, B ×0.75, and the non-points teams (Softball B, Flag Football B2, Volleyball C) ×0.5. In softball and flag football, members who are not on a listed roster go on the non-points team.
 
 ### Admin page
 
