@@ -36,7 +36,7 @@ const now = Date.now();
 const users = [
   ['admin', 'Admin', 1],
   ['jp', 'JP Freri', 0],
-  ['quin', 'Quin Martin', 0],
+  ['quinten', 'Quinten Talamantes', 0],
   ['brody', 'Brody White', 0],
   ['steven', 'Steven Holland', 0],
 ].map(([u, d, a]) => ({ id: Number(run('INSERT INTO users (username, display_name, pass_hash, is_admin) VALUES (?, ?, ?, ?)', u, d, hash('password'), a).lastInsertRowid), name: d }));
@@ -174,4 +174,4 @@ for (const [sport, cfg] of Object.entries(leagues)) {
 
 const counts = one('SELECT (SELECT COUNT(*) FROM athletes) AS a, (SELECT COUNT(*) FROM games) AS g, (SELECT COUNT(*) FROM game_stats) AS s');
 console.log(`Seeded ${DATA.members.length} members in 5 sports (${counts.a} player entries), ${counts.g} games, ${counts.s} stat lines.`);
-console.log('Log in as "admin" (admin) or jp / quin / brody / steven. Every password is "password".');
+console.log('Log in as "admin" (admin) or jp / quinten / brody / steven. Every password is "password".');
