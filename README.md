@@ -12,7 +12,7 @@ npm run seed     # optional: wipes the database and loads made-up demo data
 npm start        # http://localhost:3000
 ```
 
-With the demo data, log in as `commish` (admin) or `jp`, `quin`, `brody`, `steven`. Every password is `password`.
+With the demo data, log in as `admin` (admin) or `jp`, `quin`, `brody`, `steven`. Every password is `password`.
 
 The demo data is built from the club's own files: the 2026-27 directory (names and flag football A/B teams only), the intramural stat sheets and the 26-27 softball, flag football and volleyball schedules. They live in `scripts/demo-data.json` and `scripts/schedules-2026-27.json`. Only this season's sheets ("Softball 26", "Football 26") are used, and names not in the directory (graduates) are left out. The sheets only have season totals, so the seed spreads each player's totals over his team's games at random; the totals add up exactly. Volleyball, basketball and soccer have not started, so their rosters and stats are empty for an admin to fill in.
 

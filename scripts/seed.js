@@ -34,7 +34,7 @@ const now = Date.now();
 
 // Logins for trying the app. Everyone's password is "password".
 const users = [
-  ['commish', 'Commissioner', 1],
+  ['admin', 'Admin', 1],
   ['jp', 'JP Freri', 0],
   ['quin', 'Quin Martin', 0],
   ['brody', 'Brody White', 0],
@@ -174,4 +174,4 @@ for (const [sport, cfg] of Object.entries(leagues)) {
 
 const counts = one('SELECT (SELECT COUNT(*) FROM athletes) AS a, (SELECT COUNT(*) FROM games) AS g, (SELECT COUNT(*) FROM game_stats) AS s');
 console.log(`Seeded ${DATA.members.length} members in 5 sports (${counts.a} player entries), ${counts.g} games, ${counts.s} stat lines.`);
-console.log('Log in as "commish" (admin) or jp / quin / brody / steven. Every password is "password".');
+console.log('Log in as "admin" (admin) or jp / quin / brody / steven. Every password is "password".');
