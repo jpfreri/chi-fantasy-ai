@@ -69,7 +69,8 @@
    "Steven Holland": "A",
    "Owen Hohmann": "A",
    "Cannon Poore": "A",
-   "Landon Parker": "A"
+   "Landon Parker": "A",
+   "Quinten Talamantes": "A"
   },
   "flag_football": {
    "Cotter Hensal": "A",
@@ -89,6 +90,7 @@
    "Cannon Poore": "B",
    "Jeremiah Lorance": "B",
    "Brayden Thompson": "B",
+   "Quinten Talamantes": "B",
    "Nathyn McCrea": "B",
    "Jaxon Santos": "B",
    "Owen Hohmann": "B",
@@ -97,8 +99,7 @@
    "Shepard Schuermann": "B",
    "Carson Mauck": "B",
    "Grayson Harrod": "B",
-   "Carsen Hitt": "A",
-   "Quinten Talamantes": "B"
+   "Carsen Hitt": "A"
   }
  },
  "positions": {
@@ -120,6 +121,7 @@
    "Cannon Poore": "WR",
    "Jeremiah Lorance": "WR",
    "Brayden Thompson": "DB",
+   "Quinten Talamantes": "WR",
    "Nathyn McCrea": "DB",
    "Jaxon Santos": "WR",
    "Owen Hohmann": "DB",
@@ -202,6 +204,12 @@
     "double": 1,
     "triple": 1,
     "rbi": 2
+   },
+   "Quinten Talamantes": {
+    "ab": 14,
+    "single": 6,
+    "double": 1,
+    "rbi": 4
    }
   },
   "flag_football": {
@@ -277,6 +285,7 @@
    "Cannon Poore": {},
    "Jeremiah Lorance": {},
    "Brayden Thompson": {},
+   "Quinten Talamantes": {},
    "Nathyn McCrea": {},
    "Jaxon Santos": {},
    "Owen Hohmann": {},
