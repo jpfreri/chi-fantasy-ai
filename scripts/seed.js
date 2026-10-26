@@ -129,12 +129,13 @@ for (const [sport, club] of Object.entries(CLUB)) {
 }
 
 // One fantasy league per sport, in different states so every screen has something on it.
+// Each Chi game night is a fantasy round. Softball had 4 game nights and flag football 5.
 const leagues = {
-  softball: { state: 'complete', weeks: 3, playoffs: 0, season: '2026-27' },
-  flag_football: { state: 'active', weeks: 2, playoffs: 0, season: '2026-27' },
-  volleyball: { state: 'setup', weeks: 2, playoffs: 2, season: '2026-27' },
-  basketball: { state: 'setup', weeks: 5, playoffs: 4, season: '2026-27' },
-  soccer: { state: 'setup', weeks: 5, playoffs: 4, season: '2026-27' },
+  softball: { state: 'complete', playoffs: 2, season: '2026-27' },
+  flag_football: { state: 'active', playoffs: 2, season: '2026-27' },
+  volleyball: { state: 'setup', playoffs: 2, season: '2026-27' },
+  basketball: { state: 'setup', playoffs: 4, season: '2026-27' },
+  soccer: { state: 'setup', playoffs: 4, season: '2026-27' },
 };
 const teamNames = ['Scotsmen Supreme', 'Holy Rollers', 'Bench Warmers', 'Pick Six Prophets', 'Fast Break Fellowship'];
 for (const [sport, cfg] of Object.entries(leagues)) {
@@ -143,7 +144,7 @@ for (const [sport, cfg] of Object.entries(leagues)) {
     `INSERT INTO leagues (sport, name, season, roster_size, pick_seconds, scoring, created_by, regular_weeks, playoff_teams)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     sport, `ΧΛΦ ${s.name}`, cfg.season, s.rosterSize, cfg.state === 'drafting' ? 600 : 90,
-    JSON.stringify(defaultScoring(sport)), users[0].id, cfg.weeks, cfg.playoffs
+    JSON.stringify(defaultScoring(sport)), users[0].id, F.defaultRegularWeeks(sport, 'game', cfg.playoffs), cfg.playoffs
   ).lastInsertRowid);
   const members = cfg.state === 'setup' ? users.slice(0, 3) : users;
   members.forEach((u, i) => {

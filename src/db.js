@@ -150,6 +150,8 @@ addColumn('im_teams', 'multiplier', 'REAL NOT NULL DEFAULT 1');
 // Secret bot managers: 'win' always tries to win, 'lose' always tries to lose. Only admins can see this.
 addColumn('users', 'bot', 'TEXT');
 addColumn('league_teams', 'bot_checked_at', 'INTEGER');
+// How fantasy rounds are made: 'game' = one round per day Chi plays, 'week' = one per intramural week.
+addColumn('leagues', 'round_by', "TEXT NOT NULL DEFAULT 'game'");
 // Google sign-in: the verified Google email and the account's stable Google id.
 addColumn('users', 'email', 'TEXT');
 addColumn('users', 'google_sub', 'TEXT');

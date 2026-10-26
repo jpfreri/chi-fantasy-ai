@@ -338,7 +338,8 @@ async function pageHome() {
           </div>
           ${t.champion ? `<div class="small" style="margin-top:8px">🏆 Champion: <strong>${esc(t.champion.name)}</strong></div>`
             : t.matchup && t.status === 'active' ? `<a class="minimatch" href="#/league/${t.league_id}/matchups/${t.week}">
-              <span class="muted small">${t.matchup.label ? esc(t.matchup.label) : `Week ${t.week}`} vs ${esc(t.matchup.opponent)}</span>
+              <span class="muted small">${t.matchup.label ? esc(t.matchup.label) : `${t.round_by === 'week' ? 'Week' : 'Round'} ${t.week}`} vs ${esc(t.matchup.opponent)}
+                ${t.matchup.win_chance != null && t.matchup.state !== 'final' ? `<br>🤖 ${Math.round(t.matchup.win_chance * 100)}% to win` : ''}</span>
               <span>${t.matchup.state === 'upcoming' ? statusBadge('upcoming') : `${pts(t.matchup.mine)} – ${pts(t.matchup.theirs)}`}</span></a>` : ''}
         </div>`).join('')}</div>` : '<p class="empty">You are not in any leagues yet. Join one below or ask a commissioner to create one.</p>'}
     </div>
@@ -412,10 +413,11 @@ async function pageSport(key, tab = 'schedule') {
           <div class="field"><label>Season</label><input name="season" placeholder="Fall 2026"></div>
           <div class="field"><label>Players per team</label><input name="roster_size" type="number" min="1" max="20" value="${s.rosterSize}"></div>
           <div class="field"><label>Seconds per pick (0 = no clock)</label><input name="pick_seconds" type="number" min="0" value="90"></div>
-          <div class="field"><label>Regular season weeks</label><input name="regular_weeks" type="number" min="1" max="30" value="${Math.max(1, ...d.games.map((g) => g.week), 1) || 5}"></div>
+          <div class="field"><label>Rounds</label><select name="round_by"><option value="game">One per Chi game night</option><option value="week">One per intramural week</option></select></div>
+          <div class="field"><label>Regular season rounds (blank = fill the season)</label><input name="regular_weeks" type="number" min="1" max="30" placeholder="Auto"></div>
           <div class="field"><label>Playoff teams</label><select name="playoff_teams"><option value="4">Top 4 (semis + final)</option><option value="2">Top 2 (final)</option><option value="0">No playoffs</option></select></div>
         </div>
-        <p class="muted small">Fantasy week 1 is intramural week 1. Playoffs use the weeks right after the regular season, so schedule intramural games for those weeks too.</p>
+        <p class="muted small">Each round you play a different fantasy team. With game-night rounds, every night Chi plays is a round, and all the Chi games that night count. The playoffs use the last rounds of the season.</p>
         <button>Create league</button>
       </form>` : ''}`,
 
@@ -692,13 +694,14 @@ async function pageLeague(id, tab, weekParam) {
   const { league: L, sport: s, myTeam } = d;
   const byId = Object.fromEntries(d.standings.map((t) => [t.id, t]));
   const R = L.regular_weeks;
+  const unit = d.roundBy === 'week' ? 'Week' : 'Round';
   const tabs = [['matchups', 'Matchups'], ['standings', 'Standings'], ['playoffs', 'Playoffs'], ['rosters', 'Rosters'],
     ['players', 'Free agents'], ['scoring', 'Scoring & settings'], ['activity', 'Activity']];
   if (!d.playoffs) tabs.splice(2, 1);
   if (L.status === 'setup' || L.status === 'drafting') tabs.splice(0, tabs.length - 2, ['setup', L.status === 'setup' ? 'Draft setup' : 'Teams']);
   tab = tab && tabs.some(([k]) => k === tab) ? tab : tabs[0][0];
   const week = Math.min(d.lastWeek, Math.max(1, Number(weekParam) || d.currentWeek || 1));
-  const weekName = (w) => (w <= R ? `Week ${w}` : d.playoffs?.rounds.find((r) => r.week === w)?.name || `Week ${w}`);
+  const weekName = (w) => (w <= R ? `${unit} ${w}` : d.playoffs?.rounds.find((r) => r.week === w)?.name || `${unit} ${w}`);
   const gamesInWeek = (w) => (w <= R ? d.matchups.filter((m) => m.week === w) : d.playoffs?.rounds.find((r) => r.week === w)?.games || []);
 
   const drafting = L.status === 'drafting' ? `
@@ -734,8 +737,9 @@ async function pageLeague(id, tab, weekParam) {
             <li>Snake draft: ${d.standings.length || 'N'} teams, ${L.roster_size} rounds. Order flips every round.</li>
             <li>${L.pick_seconds ? `${L.pick_seconds} seconds per pick. If the clock runs out, the best available player is picked for you.` : 'No pick clock.'}</li>
             <li>Every player on your roster scores. After the draft you can add and drop free agents.</li>
-            <li>Head-to-head: you play one team each week for ${R} weeks. Win the week by scoring more fantasy points.</li>
-            <li>${d.playoffs ? `The top ${d.playoffs.size} teams make the playoffs (week ${R + 1}${d.playoffs.size === 4 ? ` and ${R + 2}` : ''}). Ties go to the higher seed.` : 'No playoffs: the best record wins.'}</li>
+            <li>Head-to-head: you play a different team each ${d.roundBy === 'week' ? 'week' : 'Chi game night'} for ${R} rounds. Win the round by scoring more fantasy points.</li>
+            <li>${d.playoffs ? `The top ${d.playoffs.size} teams make the playoffs (${unit.toLowerCase()} ${R + 1}${d.playoffs.size === 4 ? ` and ${R + 2}` : ''}). Ties go to the higher seed.` : 'No playoffs: the best record wins.'}</li>
+            <li>🤖 Every matchup gets a win prediction from players' past fantasy points.</li>
             <li>Points only count for games that start while the player is on your roster.</li>
           </ul>
         </div>
@@ -750,7 +754,7 @@ async function pageLeague(id, tab, weekParam) {
           <td class="num"><strong>${t.w}-${t.l}${t.t ? `-${t.t}` : ''}</strong></td>
           <td class="num">${t.pf.toFixed(1)}</td><td class="num">${t.pa.toFixed(1)}</td>
           <td class="num">${pts(t.points)}</td></tr>`).join('')}</tbody></table>
-        <p class="muted small" style="margin-bottom:0">Ranked by record, then season points. PF and PA count finished head-to-head weeks only.
+        <p class="muted small" style="margin-bottom:0">Ranked by record, then season points. PF and PA count finished head-to-head rounds only.
           ${cut ? `Teams above the line make the playoffs.` : ''}</p></div>
         ${myTeam ? rosterCard(myTeam, true) : ''}`;
     },
@@ -760,12 +764,19 @@ async function pageLeague(id, tab, weekParam) {
       const playing = new Set(games.flatMap((g) => [g.home_team_id, g.away_team_id]));
       const byes = week <= R ? d.standings.filter((t) => !playing.has(t.id)) : [];
       const ws = d.weekStates[week] || {};
+      const short = unit === 'Week' ? 'Wk' : 'Rd';
+      const ai = d.aiRecord?.total ? `<p class="muted small">🤖 AI picks this season: <strong>${d.aiRecord.right} of ${d.aiRecord.total}</strong> right.</p>` : '';
       return `
         <div class="weekpills">${Array.from({ length: d.lastWeek }, (_, i) => i + 1).map((w) => `
-          <a href="#/league/${L.id}/matchups/${w}" class="${w === week ? 'on' : ''} ${w > R ? 'po' : ''}">${w > R ? esc(weekName(w)) : `Wk ${w}`}${w === d.currentWeek ? ' •' : ''}</a>`).join('')}</div>
-        <p class="muted small">${esc(weekName(week))} · ${ws.games ? `${ws.games} intramural game${ws.games === 1 ? '' : 's'}${ws.first_game ? `, starting ${fmtDate(ws.first_game)}` : ''}` : 'No intramural games scheduled for this week yet.'}
+          <a href="#/league/${L.id}/matchups/${w}" class="${w === week ? 'on' : ''} ${w > R ? 'po' : ''}">${w > R ? esc(weekName(w)) : `${short} ${w}`}${w === d.currentWeek ? ' •' : ''}</a>`).join('')}</div>
+        <p class="muted small">${esc(weekName(week))} · ${ws.games
+          ? unit === 'Round'
+            ? `${ws.first_game ? fmtDate(ws.first_game, false) : ''}: ${ws.chi_games.map((g) => `<a href="#/game/${g.id}">${esc(g.label)}</a>`).join(', ')}`
+            : `${ws.games} intramural game${ws.games === 1 ? '' : 's'}${ws.first_game ? `, starting ${fmtDate(ws.first_game)}` : ''}`
+          : 'No Chi games scheduled for this round yet.'}
           ${ws.state === 'live' ? ' Scores update as stats are entered.' : ''}</p>
-        ${games.length ? `<div class="grid cards">${games.map(matchCard).join('')}</div>` : '<div class="card empty">No matchups this week.</div>'}
+        ${ai}
+        ${games.length ? `<div class="grid cards">${games.map(matchCard).join('')}</div>` : '<div class="card empty">No matchups this round.</div>'}
         ${byes.length ? `<p class="muted">Bye: ${byes.map((t) => esc(t.name)).join(', ')}</p>` : ''}`;
     },
 
@@ -774,9 +785,9 @@ async function pageLeague(id, tab, weekParam) {
       const projected = d.standings.slice(0, p.size);
       return `
         ${p.seeded ? '' : `<div class="card"><h2>Playoff picture</h2>
-          <p class="muted">Seeds lock when week ${R} is final. If the season ended today:</p>
+          <p class="muted">Seeds lock when ${unit.toLowerCase()} ${R} is final. If the season ended today:</p>
           <ol>${projected.map((t) => `<li><strong>${esc(t.name)}</strong> <span class="muted small">${t.w}-${t.l}${t.t ? `-${t.t}` : ''} · ${t.points.toFixed(1)} pts</span></li>`).join('')}</ol></div>`}
-        <div class="bracket">${p.rounds.map((r) => `<div><h3>${esc(r.name)} <span class="muted small">· week ${r.week}</span></h3>
+        <div class="bracket">${p.rounds.map((r) => `<div><h3>${esc(r.name)} <span class="muted small">· ${unit.toLowerCase()} ${r.week}</span></h3>
           ${r.games.map(matchCard).join('')}</div>`).join('')}
           ${d.champion ? `<div><h3>Champion</h3><div class="card champ">🏆<strong>${esc(d.champion.name)}</strong><div class="muted small">${esc(d.champion.owner_name)}</div></div></div>` : ''}
         </div>`;
@@ -810,10 +821,11 @@ async function pageLeague(id, tab, weekParam) {
         <div class="field"><label>Season</label><input name="season" value="${esc(L.season || '')}"></div>
         <div class="field"><label>Seconds per pick</label><input name="pick_seconds" type="number" min="0" value="${L.pick_seconds}"></div>
         ${L.status === 'setup' ? `<div class="field"><label>Players per team</label><input name="roster_size" type="number" min="1" max="20" value="${L.roster_size}"></div>` : ''}
-        <div class="field"><label>Regular season weeks</label><input name="regular_weeks" type="number" min="1" max="30" value="${R}"></div>
+        <div class="field"><label>Rounds</label><select name="round_by">${options([{ id: 'game', name: 'One per Chi game night' }, { id: 'week', name: 'One per intramural week' }], L.round_by)}</select></div>
+        <div class="field"><label>Regular season rounds</label><input name="regular_weeks" type="number" min="1" max="30" value="${R}"></div>
         <div class="field"><label>Playoff teams</label><select name="playoff_teams">${options([{ id: 0, name: 'No playoffs' }, { id: 2, name: 'Top 2 (final)' }, { id: 4, name: 'Top 4 (semis + final)' }], L.playoff_teams)}</select></div>
       </div>
-      ${['active', 'complete'].includes(L.status) ? '<p class="muted small">Changing the number of regular season weeks redraws the head-to-head schedule.</p>' : ''}
+      ${['active', 'complete'].includes(L.status) ? '<p class="muted small">Changing the rounds or their number redraws the head-to-head schedule. Switching between game nights and weeks also resets the number of rounds to fill the season.</p>' : ''}
       <div class="row"><button>Save settings</button><span class="grow"></span>
         ${L.status === 'active' ? '<button type="button" class="secondary" data-act="finish">End season</button>' : ''}
         ${L.status === 'complete' ? '<button type="button" class="secondary" data-act="reopen">Reopen season</button>' : ''}
@@ -892,7 +904,14 @@ async function pageLeague(id, tab, weekParam) {
         <td class="num">${pts(r.points)}</td></tr>`).join('') || '<tr><td class="empty">No players.</td></tr>'}
         <tr><td><strong>Total</strong></td><td class="num">${pts(total)}</td></tr></tbody></table></div>`;
     };
-    openDialog(`<h2>${esc(weekName(w))}</h2><div class="grid two">${col(byId[el.dataset.a])}${col(byId[el.dataset.h])}</div>`);
+    const all = [...d.matchups, ...(d.playoffs?.rounds.flatMap((r) => r.games) || [])];
+    const m = all.find((g) => g.week === w && g.home_team_id === Number(el.dataset.h) && g.away_team_id === Number(el.dataset.a));
+    const p = m?.prediction;
+    const keys = (t, list) => list?.length ? `<p class="small"><strong>${esc(t.name)}</strong>: ${list.map((k) => `${esc(k.name)} (${k.proj.toFixed(1)})`).join(', ')}</p>` : '';
+    const why = p?.basis === 'stats' ? `<div class="card" style="margin-top:12px"><h3>🤖 Why the AI picked it</h3>
+      <p class="muted small">Projected ${p.away_proj.toFixed(1)} (${esc(byId[el.dataset.a].name)}) vs ${p.home_proj.toFixed(1)} (${esc(byId[el.dataset.h].name)}). Each player's average fantasy points per game, pulled toward the club average for their tier until they have a few games, times the Chi games their team plays in the round${p.pregame ? '. Uses only games played before the round.' : ', plus the points already scored.'}</p>
+      ${keys(byId[el.dataset.a], p.away_key)}${keys(byId[el.dataset.h], p.home_key)}</div>` : '';
+    openDialog(`<h2>${esc(weekName(w))}</h2><div class="grid two">${col(byId[el.dataset.a])}${col(byId[el.dataset.h])}</div>${why}`);
   };
   actions.finish = async () => {
     if (!confirm('End the season and crown the champion?')) return;
@@ -915,11 +934,30 @@ async function pageLeague(id, tab, weekParam) {
         ${t ? `<div class="muted small">${esc(t.owner_name)} · ${t.w}-${t.l}${t.t ? `-${t.t}` : ''}</div>` : ''}</span>
       <span class="mscore">${showPts && t ? Number(p).toFixed(1) : ''}</span></div>`;
     return `<div class="card match ${mine ? 'mine' : ''}">
-      <div class="row small muted"><span>${m.label ? `${esc(m.label)} · ` : ''}${m.week <= R ? `Week ${m.week}` : `Week ${m.week}`}</span><span class="grow"></span>${statusBadge(m.state)}</div>
+      <div class="row small muted"><span>${m.label ? `${esc(m.label)} · ` : ''}${unit} ${m.week}</span><span class="grow"></span>${statusBadge(m.state)}</div>
       ${m.kind === 'playoff'
         ? side(h, m.home_points, m.home_seed) + side(a, m.away_points, m.away_seed)
         : side(a, m.away_points, m.away_seed) + side(h, m.home_points, m.home_seed)}
+      ${h && a ? predictionBar(m, h, a) : ''}
       ${h && a ? `<a href="#" class="small" data-act="detail" data-week="${m.week}" data-h="${h.id}" data-a="${a.id}">${showPts ? 'See player points' : 'See rosters'}</a>` : ''}
+    </div>`;
+  }
+
+  // The AI pick: who is likely to win, by how much, and (once the round is over) whether it was right.
+  function predictionBar(m, h, a) {
+    const p = m.prediction;
+    if (!p) return '';
+    if (p.basis === 'none') return '<div class="pred muted small">🤖 No stats yet, so no prediction.</div>';
+    const pct = Math.round(p.home_win * 100);
+    const fav = pct >= 50 ? h : a;
+    const favPct = Math.max(pct, 100 - pct);
+    // Bar order matches the card: away on top/left for the regular season, home first in the playoffs.
+    const [first, second, firstPct] = m.kind === 'playoff' ? [h, a, pct] : [a, h, 100 - pct];
+    const verdict = m.state === 'final' && p.correct !== undefined ? (p.correct ? ' · <span class="good">called it ✓</span>' : ' · <span class="bad">missed ✗</span>') : '';
+    return `<div class="pred">
+      <div class="small"><span>🤖 ${m.state === 'final' ? 'Picked' : 'Picks'} <strong>${esc(fav.name)}</strong> · ${favPct}%</span>${verdict}</div>
+      <div class="predbar" title="${esc(first.name)} ${firstPct}% · ${esc(second.name)} ${100 - firstPct}%"><span style="width:${firstPct}%"></span></div>
+      <div class="muted small">Projected ${(m.kind === 'playoff' ? p.home_proj : p.away_proj).toFixed(1)} – ${(m.kind === 'playoff' ? p.away_proj : p.home_proj).toFixed(1)}${p.pregame ? '' : ' (live)'}</div>
     </div>`;
   }
 

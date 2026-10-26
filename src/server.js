@@ -287,7 +287,9 @@ app.get('/api/home', needUser, wrap((req) => {
         label: m.label || null, state: m.state, opponent: opp?.name || 'TBD',
         mine: m.home_team_id === t.team_id ? m.home_points : m.away_points,
         theirs: m.home_team_id === t.team_id ? m.away_points : m.home_points,
+        win_chance: m.prediction ? (m.home_team_id === t.team_id ? m.prediction.home_win : 1 - m.prediction.home_win) : null,
       } : null,
+      round_by: league.round_by,
     };
   });
   const clubGame = '(h.is_club = 1 OR a.is_club = 1)';
@@ -569,19 +571,22 @@ app.put('/api/games/:id/stats', needAdmin, wrap((req) => {
 app.post('/api/leagues', needAdmin, wrap((req) => {
   const sport = requireSport(req.body.sport);
   const name = cleanText(req.body.name) || `${SPORTS[sport].name} League`;
+  const by = roundBy(req.body.round_by);
+  const po = playoffTeams(req.body.playoff_teams ?? 4);
   const r = run(
-    `INSERT INTO leagues (sport, name, season, roster_size, pick_seconds, scoring, created_by, regular_weeks, playoff_teams)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO leagues (sport, name, season, roster_size, pick_seconds, scoring, created_by, regular_weeks, playoff_teams, round_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     sport, name, cleanText(req.body.season, 30) || null,
     Math.min(20, Math.max(1, Number(req.body.roster_size) || SPORTS[sport].rosterSize)),
     Math.max(0, Number(req.body.pick_seconds ?? 90) || 0),
     JSON.stringify(defaultScoring(sport)), req.user.id,
-    clampWeeks(req.body.regular_weeks ?? F.defaultRegularWeeks(sport)), playoffTeams(req.body.playoff_teams ?? 4)
+    req.body.regular_weeks ? clampWeeks(req.body.regular_weeks) : F.defaultRegularWeeks(sport, by, po), po, by
   );
   return { id: Number(r.lastInsertRowid) };
 }));
 
 const clampWeeks = (v) => Math.min(30, Math.max(1, Math.round(Number(v)) || 1));
+const roundBy = (v) => (v === 'week' ? 'week' : 'game');
 const playoffTeams = (v) => ([0, 2, 4].includes(Number(v)) ? Number(v) : 4);
 
 // Lazy server-side work for a league: auto-pick for expired clocks, then let the bots act.
@@ -619,6 +624,8 @@ app.get('/api/leagues/:id', needUser, wrap((req) => {
     currentWeek: view.currentWeek,
     lastWeek: view.lastWeek,
     weekStates: view.weeks,
+    roundBy: view.roundBy,
+    aiRecord: view.aiRecord,
     myTeam: mine,
     isCommish: isCommish(req.user, league),
     freeAgents: league.status === 'active' ? F.availableAthletes(league).sort((a, b) => b.points - a.points) : [],
@@ -642,20 +649,24 @@ app.put('/api/leagues/:id', needUser, wrap((req) => {
     scoring = {};
     for (const [k] of SPORTS[league.sport].stats) scoring[k] = Number(req.body.scoring[k]) || 0;
   }
-  const regularWeeks = req.body.regular_weeks !== undefined ? clampWeeks(req.body.regular_weeks) : league.regular_weeks;
   const playoffs = req.body.playoff_teams !== undefined ? playoffTeams(req.body.playoff_teams) : league.playoff_teams;
+  const by = req.body.round_by !== undefined ? roundBy(req.body.round_by) : league.round_by;
+  // Switching between game-night and weekly rounds resets the season length unless a new one is given.
+  const asked = req.body.regular_weeks ? clampWeeks(req.body.regular_weeks) : league.regular_weeks;
+  const regularWeeks = by !== league.round_by && asked === league.regular_weeks ? F.defaultRegularWeeks(league.sport, by, playoffs) : asked;
   let status = league.status;
   if (req.body.status === 'complete' && league.status === 'active') status = 'complete';
   if (req.body.status === 'active' && league.status === 'complete') status = 'active';
   run(
     `UPDATE leagues SET name = ?, season = ?, roster_size = ?, pick_seconds = ?, scoring = ?, status = ?,
-            regular_weeks = ?, playoff_teams = ? WHERE id = ?`,
-    name, season, roster, pick, JSON.stringify(scoring), status, regularWeeks, playoffs, league.id
+            regular_weeks = ?, playoff_teams = ?, round_by = ? WHERE id = ?`,
+    name, season, roster, pick, JSON.stringify(scoring), status, regularWeeks, playoffs, by, league.id
   );
-  // A new season length means a new head-to-head schedule.
-  if (regularWeeks !== league.regular_weeks && ['active', 'complete'].includes(league.status)) {
+  // A new season length or round type means a new head-to-head schedule.
+  if ((regularWeeks !== league.regular_weeks || by !== league.round_by) && ['active', 'complete'].includes(league.status)) {
     F.generateSchedule({ ...league, regular_weeks: regularWeeks });
-    F.log(league.id, `The commissioner changed the regular season to ${regularWeeks} weeks, so the schedule was redrawn.`);
+    const unit = by === 'week' ? 'weeks' : 'rounds (one per Chi game night)';
+    F.log(league.id, `The commissioner changed the regular season to ${regularWeeks} ${unit}, so the schedule was redrawn.`);
   }
   return { ok: true };
 }));

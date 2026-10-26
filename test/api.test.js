@@ -133,6 +133,29 @@ test('head-to-head records, playoff seeding and a champion', async () => {
   assert.equal(lg.data.champion.name, 'Cals');
 });
 
+test('each Chi game night is a round, and every matchup gets a win prediction', async () => {
+  // Games yesterday and today are already in; add one tomorrow. Two games the same night are one round.
+  const tomorrow = new Date(Date.now() + 86400000).toISOString();
+  await admin('POST', '/api/games', { sport: 'basketball', home_team_id: ids.t1, away_team_id: ids.t2, starts_at: tomorrow });
+  await admin('POST', '/api/games', { sport: 'basketball', home_team_id: ids.t2, away_team_id: ids.t1, starts_at: tomorrow });
+  await admin('PUT', `/api/leagues/${ids.league}`, { playoff_teams: 0, round_by: 'week' });
+  await admin('PUT', `/api/leagues/${ids.league}`, { round_by: 'game' });
+  const lg = await bob('GET', `/api/leagues/${ids.league}`);
+  assert.equal(lg.data.roundBy, 'game');
+  assert.equal(lg.data.league.regular_weeks, 3, 'switching to game nights fills the season: 3 nights');
+  assert.equal(lg.data.weekStates[3].games, 2);
+  const [r1, r2, r3] = [1, 2, 3].map((w) => lg.data.matchups.find((m) => m.week === w));
+  assert.equal(r1.prediction.basis, 'none', 'nothing was known before the first night');
+  assert.equal(typeof r2.prediction.correct, 'boolean', 'finished rounds say if the pick was right');
+  assert.equal(r3.state, 'upcoming');
+  assert.ok(r3.prediction.home_win > 0 && r3.prediction.home_win < 1);
+  assert.ok(r3.prediction.home_proj > 0 || r3.prediction.away_proj > 0);
+  // The side projected to score more is the favorite.
+  const p = r3.prediction;
+  assert.equal(p.pick, p.home_proj > p.away_proj ? r3.home_team_id : r3.away_team_id);
+  assert.equal(lg.data.aiRecord.total, 1);
+});
+
 test('round robin gives every team one game a week and covers every pairing', () => {
   const { roundRobin } = require('../src/fantasy');
   const weeks = roundRobin([1, 2, 3, 4, 5], 5);

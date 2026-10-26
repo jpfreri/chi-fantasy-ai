@@ -45,9 +45,13 @@ An admin can add two kinds of bot teams to a league before its draft: one that a
 
 ### Head-to-head and playoffs
 
-Fantasy week N is intramural week N. When the draft ends, the app draws a round-robin schedule for the regular season (with a bye each week if the number of teams is odd). Each week you win if your players score more fantasy points than your opponent's. A week is final once every intramural game in it is marked final.
+Every night Chi plays is a fantasy round, and all the Chi games that night count (so Chi A, B and C players all score). When the draft ends, the app draws a round-robin schedule so you play a different team each round (with a bye if the number of teams is odd). You win a round if your players score more fantasy points than your opponent's. A round is final once every Chi game that night is marked final. A commissioner can switch a league to weekly rounds (round N = intramural week N) under **Scoring & settings**.
 
-Standings rank teams by record, then by season points. The top 4 (or top 2) make the playoffs, which use the intramural weeks right after the regular season: semifinals (1 vs 4, 2 vs 3) and then a championship. Ties in the playoffs go to the higher seed. The commissioner sets the regular season length and playoff size under **Scoring & settings**. Changing the season length redraws the schedule.
+Standings rank teams by record, then by season points. The top 4 (or top 2) make the playoffs, which use the last rounds of the season: semifinals (1 vs 4, 2 vs 3) and then a championship. Ties in the playoffs go to the higher seed. The commissioner sets the regular season length and playoff size under **Scoring & settings**. Changing the season length redraws the schedule. By default the regular season fills every round the playoffs don't need.
+
+### AI win predictions
+
+Every matchup shows who the AI picks, the win chance, and both teams' projected points. Each player's expected points per game is his average fantasy points per game, pulled toward the club average for his tier until he has a few games (a game his team played where he has no stat line counts as 0). A team's projection is the sum over its players of expected points times the number of Chi games his team plays that night. The win chance comes from the gap between the two projections and how much single games usually vary. Upcoming and finished rounds use only games played before the round, so finished rounds show whether the pick was right, and the matchups tab keeps the AI's record. During a live round, the points already scored count as they are. It runs inside the app with no API key or cost.
 
 Each league has its own scoring rules (points per stat), which the commissioner can change at any time. Everything recalculates from the raw stats.
 

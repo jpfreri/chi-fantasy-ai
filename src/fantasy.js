@@ -74,8 +74,70 @@ function leagueTeams(leagueId) {
   );
 }
 
+// ---------- Rounds ----------
+
+const TZ = 'America/Chicago';
+const dayKey = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ });
+const CLUB_GAMES_SQL = `
+  SELECT g.id, g.week, g.starts_at, g.status, g.home_team_id, g.away_team_id, h.name AS home_name, aw.name AS away_name,
+         h.is_club AS home_club, aw.is_club AS away_club
+    FROM games g LEFT JOIN im_teams h ON h.id = g.home_team_id LEFT JOIN im_teams aw ON aw.id = g.away_team_id
+   WHERE g.sport = ?`;
+
+const roundState = (games) => {
+  const final = games.filter((g) => g.status === 'final').length;
+  const started = games.filter((g) => g.status !== 'scheduled').length;
+  return final === games.length ? 'final' : started ? 'live' : 'upcoming';
+};
+
+// Fantasy rounds for a league. With round_by 'game', every day Chi plays is a round (all the Chi games
+// that day count, so players on Chi A, B and C all score). With 'week', round N is intramural week N.
+// Returns byGame (game id -> round) and list (round -> state, game count, first game and the Chi games).
+function rounds(league) {
+  const games = all(`${CLUB_GAMES_SQL} ORDER BY g.starts_at, g.id`, league.sport);
+  const groups = new Map();
+  for (const g of games) {
+    const club = g.home_club || g.away_club;
+    if (league.round_by === 'week') {
+      if (!groups.has(g.week)) groups.set(g.week, []);
+      groups.get(g.week).push(g);
+    } else if (club && g.starts_at) {
+      const k = dayKey(g.starts_at);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(g);
+    }
+  }
+  const keys = league.round_by === 'week' ? [...groups.keys()].sort((a, b) => a - b) : [...groups.keys()];
+  const byGame = {};
+  const list = {};
+  keys.forEach((k, i) => {
+    const n = league.round_by === 'week' ? k : i + 1;
+    const gs = groups.get(k);
+    for (const g of gs) byGame[g.id] = n;
+    list[n] = {
+      games: gs.length, state: roundState(gs), first_game: gs.find((g) => g.starts_at)?.starts_at || null,
+      final: gs.filter((g) => g.status === 'final').length,
+      chi_games: gs.filter((g) => g.home_club || g.away_club).map((g) => ({
+        id: g.id, status: g.status, home_team_id: g.home_team_id, away_team_id: g.away_team_id,
+        label: `${g.away_name || 'TBD'} @ ${g.home_name || 'TBD'}`,
+      })),
+    };
+  });
+  return { byGame, list, count: league.round_by === 'week' ? Math.max(0, ...keys) : keys.length };
+}
+
+function playoffRounds(playoffTeams) {
+  return playoffTeams >= 4 ? 2 : playoffTeams >= 2 ? 1 : 0;
+}
+
+// The regular season fills every round that the playoffs don't need.
+function defaultRegularWeeks(sport, roundBy = 'game', playoffTeams = 4) {
+  const n = rounds({ sport, round_by: roundBy }).count;
+  return n ? Math.max(1, n - playoffRounds(playoffTeams)) : 5;
+}
+
 // Standings: each team's points from its players, counting only games that started while rostered.
-function standings(league) {
+function standings(league, R = rounds(league)) {
   const lines = sportStatLines(league.sport);
   const byAthlete = {};
   for (const l of lines) (byAthlete[l.athlete_id] ||= []).push(l);
@@ -101,8 +163,10 @@ function standings(league) {
       if (!counts) continue;
       const p = linePoints(l, league.scoring);
       pts += p;
-      team.weeks[l.week] = (team.weeks[l.week] || 0) + p;
-      const wk = (team.byWeek[l.week] ||= {});
+      const round = R.byGame[l.game_id];
+      if (round == null) continue;
+      team.weeks[round] = (team.weeks[round] || 0) + p;
+      const wk = (team.byWeek[round] ||= {});
       const c = (wk[e.athlete_id] ||= { athlete_id: e.athlete_id, name: e.name, position: e.position, points: 0, dropped: !!e.dropped_at });
       c.points = Math.round((c.points + p) * 100) / 100;
     }
@@ -154,24 +218,6 @@ function generateSchedule(league) {
   });
 }
 
-// Fantasy week N is intramural week N. A week is final once every game in it is final.
-function weekStatus(sport) {
-  const out = {};
-  for (const r of all(
-    `SELECT week, COUNT(*) AS games, SUM(status = 'final') AS final, SUM(status != 'scheduled') AS started,
-            MIN(starts_at) AS first_game
-       FROM games WHERE sport = ? GROUP BY week`,
-    sport
-  )) {
-    out[r.week] = { ...r, state: r.final === r.games ? 'final' : r.started > 0 ? 'live' : 'upcoming' };
-  }
-  return out;
-}
-
-function defaultRegularWeeks(sport) {
-  return one('SELECT MAX(week) AS w FROM games WHERE sport = ?', sport).w || 5;
-}
-
 function playoffSize(league, teamCount) {
   if (league.playoff_teams >= 4 && teamCount >= 4) return 4;
   if (league.playoff_teams >= 2 && teamCount >= 2) return 2;
@@ -180,9 +226,10 @@ function playoffSize(league, teamCount) {
 
 // Standings, the weekly schedule with scores, the playoff bracket and the champion, in one place.
 function leagueView(league) {
-  const teams = standings(league);
+  const R0 = rounds(league);
+  const teams = standings(league, R0);
   const byId = Object.fromEntries(teams.map((t) => [t.id, t]));
-  const weeks = weekStatus(league.sport);
+  const weeks = R0.list;
   const live = ['active', 'complete'].includes(league.status);
   if (live && !one('SELECT 1 FROM matchups WHERE league_id = ?', league.id)) generateSchedule(league);
 
@@ -256,11 +303,116 @@ function leagueView(league) {
     if (stateOf(w) !== 'final') { currentWeek = w; break; }
   }
 
+  const allGames = [...matchups, ...(playoffs?.rounds.flatMap((r) => r.games) || [])];
+  predict(league, teams, allGames, R0);
+  const judged = allGames.filter((g) => g.prediction?.correct !== undefined);
+  const aiRecord = { right: judged.filter((g) => g.prediction.correct).length, total: judged.length };
+
   return {
-    teams, matchups, playoffs, regularDone, lastWeek, currentWeek,
+    teams, matchups, playoffs, regularDone, lastWeek, currentWeek, roundBy: league.round_by, aiRecord,
     champion: champion ? { id: champion.id, name: champion.name, owner_name: champion.owner_name, points: champion.points } : null,
     weeks: Object.fromEntries(Array.from({ length: lastWeek }, (_, i) => [i + 1, weeks[i + 1] || { state: 'upcoming', games: 0 }])),
   };
+}
+
+// ---------- Win predictions ----------
+
+// Standard normal CDF (Abramowitz-Stegun 7.1.26).
+function normCdf(z) {
+  const t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2);
+  const y = 1 - (((((1.061405429 * t - 1.453152735) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z / 2);
+  return z >= 0 ? (1 + y) / 2 : (1 - y) / 2;
+}
+
+// Each player's expected fantasy points per game. Their own average is pulled toward the club average
+// for their tier until they have a few games, so one big game (or no games) doesn't swing it too far.
+// Returns { perGame, cv }: cv is how much single games vary around the average, from all stat lines.
+// Only games that started before `before` count, so a finished round can be judged on what was known then.
+function playerProjections(league, before = null) {
+  const lines = sportStatLines(league.sport).filter((l) => !before || (l.starts_at && l.starts_at < before));
+  const raw = lines.map((l) => scoreLine(l.stats, league.scoring));
+  const mean = raw.length ? raw.reduce((a, b) => a + b, 0) / raw.length : 0;
+  const sd = raw.length > 1 ? Math.sqrt(raw.reduce((a, b) => a + (b - mean) ** 2, 0) / (raw.length - 1)) : 0;
+  const hist = {};
+  for (const l of lines) {
+    const h = (hist[l.athlete_id] ||= { sum: 0, n: 0 });
+    h.sum += linePoints(l, league.scoring);
+    h.n += 1;
+  }
+  // A player who has no line in a finished game their team played (with stats entered) scored 0 in it.
+  const played = new Set(lines.map((l) => `${l.game_id}:${l.athlete_id}`));
+  const scored = all(
+    `SELECT g.id, g.home_team_id, g.away_team_id, g.starts_at FROM games g
+      WHERE g.sport = ? AND g.status = 'final' AND EXISTS (SELECT 1 FROM game_stats gs WHERE gs.game_id = g.id)`,
+    league.sport
+  ).filter((g) => !before || (g.starts_at && g.starts_at < before));
+  const PRIOR_GAMES = 2;
+  const perGame = {};
+  for (const a of all(
+    `SELECT a.id, a.im_team_id, COALESCE(t.multiplier, 1) AS mult FROM athletes a LEFT JOIN im_teams t ON t.id = a.im_team_id WHERE a.sport = ?`,
+    league.sport
+  )) {
+    const h = hist[a.id] || { sum: 0, n: 0 };
+    for (const g of scored) {
+      if ((g.home_team_id === a.im_team_id || g.away_team_id === a.im_team_id) && !played.has(`${g.id}:${a.id}`)) h.n += 1;
+    }
+    perGame[a.id] = { team: a.im_team_id, est: (h.sum + PRIOR_GAMES * mean * a.mult) / (h.n + PRIOR_GAMES), games: h.n };
+  }
+  return { perGame, cv: mean ? sd / mean : 0, hasData: raw.length > 0 };
+}
+
+// Adds a prediction to every head-to-head game: projected points for both sides and the chance each
+// side wins. Upcoming and finished rounds use what was known before the round started, so finished
+// rounds show whether the pick was right. A live round counts the points already scored, plus each
+// player's expected points for every Chi game their team still has left in it.
+function predict(league, teams, games, R) {
+  const byId = Object.fromEntries(teams.map((t) => [t.id, t]));
+  const cache = {};
+  const projections = (before) => (cache[before] ||= playerProjections(league, before === 'now' ? null : before));
+  const side = (team, round, live, P) => {
+    const left = (R.list[round]?.chi_games || []).filter((g) => !live || g.status !== 'final');
+    let mu = live ? team.weeks[round] || 0 : 0;
+    let v = 0;
+    const players = [];
+    for (const p of team.players) {
+      const pr = P.perGame[p.athlete_id];
+      if (!pr) continue;
+      const n = left.filter((g) => g.home_team_id === pr.team || g.away_team_id === pr.team).length;
+      const proj = pr.est * n;
+      mu += proj;
+      v += n * (P.cv * pr.est) ** 2;
+      if (n) players.push({ athlete_id: p.athlete_id, name: p.name, proj: Math.round(proj * 10) / 10 });
+    }
+    players.sort((a, b) => b.proj - a.proj);
+    return { mu, v, players };
+  };
+  for (const g of games) {
+    const info = R.list[g.week];
+    if (!g.home_team_id || !g.away_team_id || !info) continue;
+    const live = g.state === 'live';
+    const P = projections(live ? 'now' : info.first_game || 'now');
+    if (!P.hasData) {
+      g.prediction = { basis: 'none' };
+      continue;
+    }
+    const h = side(byId[g.home_team_id], g.week, live, P);
+    const a = side(byId[g.away_team_id], g.week, live, P);
+    const spread = Math.sqrt(h.v + a.v);
+    let pHome = 0.5;
+    if (spread > 0) pHome = normCdf((h.mu - a.mu) / spread);
+    else if (h.mu !== a.mu) pHome = h.mu > a.mu ? 1 : 0;
+    // Never call a round 100% before it is over.
+    pHome = Math.min(0.99, Math.max(0.01, pHome));
+    const pred = {
+      basis: 'stats', pregame: !live,
+      home_proj: Math.round(h.mu * 10) / 10, away_proj: Math.round(a.mu * 10) / 10,
+      home_win: Math.round(pHome * 100) / 100,
+      home_key: h.players.slice(0, 3), away_key: a.players.slice(0, 3),
+    };
+    pred.pick = pHome > 0.5 ? g.home_team_id : pHome < 0.5 ? g.away_team_id : null;
+    if (g.state === 'final' && g.winner && pred.pick) pred.correct = pred.pick === g.winner;
+    g.prediction = pred;
+  }
 }
 
 function log(leagueId, text) {
@@ -437,5 +589,5 @@ function httpError(status, message) {
 
 module.exports = {
   EPOCH, sportStatLines, statLinesFor, linePoints, athleteTotals, athletesWithPoints, getLeague, leagueTeams, standings, log,
-  draftOrder, draftState, leagueView, runBots, botTeams, generateSchedule, defaultRegularWeeks, roundRobin, availableAthletes, makePick, processExpiredPicks, httpError,
+  draftOrder, draftState, leagueView, runBots, botTeams, generateSchedule, defaultRegularWeeks, rounds, roundRobin, availableAthletes, makePick, processExpiredPicks, httpError,
 };
