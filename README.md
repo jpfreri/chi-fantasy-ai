@@ -59,6 +59,26 @@ Each league has its own scoring rules (points per stat), which the commissioner 
 | `DATA_DIR` | Folder for the SQLite database (default `./data`) |
 | `CLUB_CODE` | If set, people need this code to create an account. Use it so only brothers can sign up. |
 | `NODE_ENV=production` | Marks the login cookie as HTTPS-only |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Turn on "Continue with Google". See below. |
+| `ADMIN_EMAILS` | Comma-separated Google emails that become admins when they sign in |
+| `PUBLIC_URL` | The site's address, like `https://chi-fantasy.onrender.com`. Used to build the Google callback URL. Defaults to the address the browser used. |
+
+Put these in a `.env` file next to `package.json` (copy `.env.example`). `npm start` reads it. Never commit `.env`.
+
+## Google sign-in
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a project (any name, like "Chi Fantasy").
+2. Open **APIs & Services > OAuth consent screen**. Choose **External**, fill in the app name and your email, and add yourself as a test user. While the app is in "Testing", only test users can sign in, so add the brothers' emails there, or click **Publish app** when you're ready. The scopes it asks for (email, profile, openid) don't need Google's review.
+3. Open **APIs & Services > Credentials > Create credentials > OAuth client ID**. Pick **Web application**.
+4. Under **Authorized redirect URIs**, add `http://localhost:3000/auth/google/callback`. When you deploy, also add `https://<your site>/auth/google/callback`.
+5. Copy the client ID and secret into `.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, set `ADMIN_EMAILS` to your Gmail, and restart the app.
+
+How accounts work:
+- The first Google sign-in makes a new account named after your Google profile. After that, the same Google account always signs into it.
+- Already have a username? Log in the normal way, open **Account**, and click **Link Google account**.
+- Emails in `ADMIN_EMAILS` become admins (commissioners). Everyone else is a regular member.
+- If `CLUB_CODE` is set, a new member types it on the sign-up page before clicking Google.
+- Username and password login still works as a backup. Google accounts can set a password on the Account page.
 
 ## Deploying
 

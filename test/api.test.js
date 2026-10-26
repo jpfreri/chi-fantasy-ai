@@ -190,3 +190,62 @@ test('the server auto-picks when the clock runs out', async () => {
   assert.ok(d.data.picks.every((p) => p.auto === 1));
   assert.equal(d.data.league.status, 'active');
 });
+
+test('Google sign-in creates or links an account and makes ADMIN_EMAILS admins', async () => {
+  const http = require('http');
+  const id = (claims) => `x.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.sig`;
+  let next = {};
+  const fake = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      const ok = new URLSearchParams(body).get('code') === 'good';
+      res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(ok ? { id_token: id(next) } : { error: 'invalid_grant' }));
+    });
+  });
+  await new Promise((ok) => fake.listen(0, ok));
+  // The server reads these env vars at load, so start a second copy of the app with Google turned on.
+  for (const k of Object.keys(require.cache)) if (k.includes('/src/server')) delete require.cache[k];
+  Object.assign(process.env, { GOOGLE_CLIENT_ID: 'cid', GOOGLE_CLIENT_SECRET: 'sec', ADMIN_EMAILS: 'Boss@Example.com',
+    GOOGLE_TOKEN_URL: `http://localhost:${fake.address().port}/token` });
+  const gapp = require('../src/server');
+  const gs = await new Promise((ok) => { const s = gapp.listen(0, () => ok(s)); });
+  const gbase = `http://localhost:${gs.address().port}`;
+  try {
+    const meta = await (await fetch(gbase + '/api/meta')).json();
+    assert.equal(meta.google, true);
+    async function signIn(claims, code = 'good', cookie = '') {
+      const start = await fetch(gbase + '/auth/google', { redirect: 'manual', headers: { cookie } });
+      const state = new URL(start.headers.get('location')).searchParams.get('state');
+      const g = start.headers.get('set-cookie').split(';')[0];
+      next = { iss: 'https://accounts.google.com', aud: 'cid', exp: Date.now() / 1000 + 60, email_verified: true, ...claims };
+      const cb = await fetch(`${gbase}/auth/google/callback?state=${state}&code=${code}`, { redirect: 'manual', headers: { cookie: [g, cookie].filter(Boolean).join('; ') } });
+      const sid = (cb.headers.get('set-cookie') || '').match(/sid=[0-9a-f]+/)?.[0];
+      const me = sid ? (await (await fetch(gbase + '/api/me', { headers: { cookie: sid } })).json()).user : null;
+      return { location: cb.headers.get('location'), sid, me };
+    }
+    const boss = await signIn({ sub: 'g-boss', email: 'boss@example.com', name: 'The Boss' });
+    assert.equal(boss.me.display_name, 'The Boss');
+    assert.equal(boss.me.is_admin, 1, 'ADMIN_EMAILS match ignores case');
+    assert.equal(boss.me.has_password, 0);
+    const again = await signIn({ sub: 'g-boss', email: 'boss@example.com', name: 'The Boss' });
+    assert.equal(again.me.id, boss.me.id, 'same Google id signs into the same account');
+    const fan = await signIn({ sub: 'g-fan', email: 'fan@example.com', name: 'Fan' });
+    assert.equal(fan.me.is_admin, 0);
+    const bad = await signIn({ sub: 'g-x', email: 'x@example.com', aud: 'someone-else' });
+    assert.match(bad.location, /auth_error=/);
+    const denied = await signIn({ sub: 'g-x', email: 'x@example.com' }, 'bad');
+    assert.match(denied.location, /auth_error=/);
+    // A member who is logged in links Google to their existing account.
+    const login = await fetch(gbase + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'bob', password: 'secret1' }) });
+    const bobSid = login.headers.get('set-cookie').split(';')[0];
+    const link = await signIn({ sub: 'g-bob', email: 'bob@example.com' }, 'good', bobSid);
+    assert.equal(link.location, '/#/account');
+    const bobMe = (await (await fetch(gbase + '/api/me', { headers: { cookie: bobSid } })).json()).user;
+    assert.equal(bobMe.email, 'bob@example.com');
+    assert.equal((await signIn({ sub: 'g-bob', email: 'bob@example.com' })).me.username, 'bob');
+  } finally {
+    gs.close(); fake.close();
+  }
+});

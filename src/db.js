@@ -150,6 +150,10 @@ addColumn('im_teams', 'multiplier', 'REAL NOT NULL DEFAULT 1');
 // Secret bot managers: 'win' always tries to win, 'lose' always tries to lose. Only admins can see this.
 addColumn('users', 'bot', 'TEXT');
 addColumn('league_teams', 'bot_checked_at', 'INTEGER');
+// Google sign-in: the verified Google email and the account's stable Google id.
+addColumn('users', 'email', 'TEXT');
+addColumn('users', 'google_sub', 'TEXT');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users (google_sub) WHERE google_sub IS NOT NULL');
 
 function tx(fn) {
   db.exec('BEGIN IMMEDIATE');

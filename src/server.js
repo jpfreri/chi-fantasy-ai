@@ -6,9 +6,17 @@ const { SPORTS, defaultScoring } = require('./sports');
 const F = require('./fantasy');
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '1mb' }));
 
 const CLUB_CODE = process.env.CLUB_CODE || '';
+// Google sign-in turns on when both of these are set. See README "Google sign-in".
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const GOOGLE_AUTH_URL = process.env.GOOGLE_AUTH_URL || 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_URL = process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token';
+// Google accounts with these emails are made admins every time they sign in.
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 const httpError = F.httpError;
 
 // ---------- Auth helpers ----------
@@ -19,7 +27,11 @@ function hashPassword(password) {
   return `${salt}:${hash}`;
 }
 
+// Accounts made through Google have no password until they set one.
+const NO_PASSWORD = '!';
+
 function checkPassword(password, stored) {
+  if (!stored || !stored.includes(':')) return false;
   const [salt, hash] = stored.split(':');
   const test = crypto.scryptSync(password, salt, 64);
   return crypto.timingSafeEqual(test, Buffer.from(hash, 'hex'));
@@ -45,7 +57,8 @@ app.use((req, res, next) => {
   const token = readCookie(req, 'sid');
   req.user = token
     ? one(
-        `SELECT u.id, u.username, u.display_name, u.is_admin FROM sessions s
+        `SELECT u.id, u.username, u.display_name, u.is_admin, u.email,
+                u.pass_hash != '${NO_PASSWORD}' AS has_password FROM sessions s
            JOIN users u ON u.id = s.user_id WHERE s.token = ?`,
         token
       )
@@ -85,6 +98,7 @@ app.get('/api/meta', (req, res) => {
   res.json({
     sports: Object.values(SPORTS),
     needsClubCode: !!CLUB_CODE,
+    google: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
     firstUser: one('SELECT COUNT(*) AS c FROM users').c === 0,
   });
 });
@@ -124,6 +138,99 @@ app.post('/api/auth/logout', wrap((req, res) => {
   return { ok: true };
 }));
 
+// ---------- Google sign-in (OAuth 2.0 authorization code flow) ----------
+
+function publicUrl(req) {
+  return (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+}
+
+function authFail(res, message) {
+  res.redirect(`/?auth_error=${encodeURIComponent(message)}#/login`);
+}
+
+// Pick a free username from the email, like "jp.freri" or "jp.freri2".
+function usernameFrom(email) {
+  const base = (email.split('@')[0].toLowerCase().replace(/[^a-z0-9_.-]/g, '') || 'member').slice(0, 28).padEnd(3, '0');
+  let name = base;
+  for (let n = 2; one('SELECT 1 FROM users WHERE username = ?', name); n++) name = `${base}${n}`;
+  return name;
+}
+
+app.get('/auth/google', (req, res) => {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) return authFail(res, 'Google sign-in is not set up on this server.');
+  const state = crypto.randomBytes(24).toString('hex');
+  const codeOk = !CLUB_CODE || req.query.club_code === CLUB_CODE ? 1 : 0;
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `g_state=${state}.${codeOk}; HttpOnly; SameSite=Lax; Path=/auth; Max-Age=600${secure}`);
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: `${publicUrl(req)}/auth/google/callback`,
+    response_type: 'code',
+    scope: 'openid email profile',
+    state,
+    prompt: 'select_account',
+  });
+  res.redirect(`${GOOGLE_AUTH_URL}?${params}`);
+});
+
+app.get('/auth/google/callback', async (req, res, next) => {
+  try {
+    const [state, codeOk] = (readCookie(req, 'g_state') || '').split('.');
+    res.setHeader('Set-Cookie', 'g_state=; HttpOnly; Path=/auth; Max-Age=0');
+    if (req.query.error) return authFail(res, 'Google sign-in was cancelled.');
+    if (!state || req.query.state !== state || !req.query.code) return authFail(res, 'That sign-in link expired. Try again.');
+
+    // The ID token comes straight from Google's token endpoint over HTTPS, so its claims can be read without
+    // checking the signature (OpenID Connect Core 3.1.3.7). The audience, issuer and expiry are still checked.
+    const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(req.query.code),
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: `${publicUrl(req)}/auth/google/callback`,
+        grant_type: 'authorization_code',
+      }),
+    });
+    const tokens = await tokenRes.json().catch(() => ({}));
+    if (!tokenRes.ok || !tokens.id_token) return authFail(res, 'Google did not accept the sign-in. Try again.');
+    const claims = JSON.parse(Buffer.from(tokens.id_token.split('.')[1] || '', 'base64url').toString() || '{}');
+    const issuerOk = ['accounts.google.com', 'https://accounts.google.com'].includes(claims.iss) || process.env.GOOGLE_TOKEN_URL;
+    if (claims.aud !== GOOGLE_CLIENT_ID || !issuerOk || !(claims.exp * 1000 > Date.now()) || !claims.sub) {
+      return authFail(res, 'Google sign-in could not be verified.');
+    }
+    if (!claims.email || claims.email_verified === false || claims.email_verified === 'false') {
+      return authFail(res, 'Your Google account needs a verified email.');
+    }
+    const email = String(claims.email).toLowerCase();
+    const makeAdmin = ADMIN_EMAILS.includes(email);
+
+    // Signed in already: link Google to this account. Otherwise find the linked account, or make a new one.
+    let user = req.user ? one('SELECT * FROM users WHERE id = ?', req.user.id) : one('SELECT * FROM users WHERE google_sub = ?', claims.sub);
+    if (req.user) {
+      const other = one('SELECT id FROM users WHERE google_sub = ? AND id != ?', claims.sub, req.user.id);
+      if (other) return authFail(res, 'That Google account is already linked to another member.');
+    }
+    if (!user) {
+      if (!makeAdmin && CLUB_CODE && codeOk !== '1') return authFail(res, 'New members need the club code. Enter it on the sign-up page, then use Google.');
+      const first = one('SELECT COUNT(*) AS c FROM users').c === 0;
+      const { lastInsertRowid } = run(
+        'INSERT INTO users (username, display_name, pass_hash, is_admin) VALUES (?, ?, ?, ?)',
+        usernameFrom(email), cleanText(claims.name, 60) || email.split('@')[0], NO_PASSWORD, first ? 1 : 0
+      );
+      user = one('SELECT * FROM users WHERE id = ?', lastInsertRowid);
+    }
+    if (user.bot) return authFail(res, 'That account cannot sign in.');
+    run('UPDATE users SET google_sub = ?, email = ?, is_admin = MAX(is_admin, ?) WHERE id = ?', claims.sub, email, makeAdmin ? 1 : 0, user.id);
+    if (!req.user) startSession(res, user.id);
+    else res.removeHeader('Set-Cookie');
+    res.redirect(req.user ? '/#/account' : '/#/');
+  } catch (err) {
+    next(err);
+  }
+});
+
 app.put('/api/me', needUser, wrap((req) => {
   if (req.body.display_name !== undefined) {
     const name = cleanText(req.body.display_name, 60);
@@ -132,7 +239,7 @@ app.put('/api/me', needUser, wrap((req) => {
   }
   if (req.body.new_password) {
     const user = one('SELECT * FROM users WHERE id = ?', req.user.id);
-    if (!checkPassword(String(req.body.current_password || ''), user.pass_hash)) throw httpError(400, 'Your current password is not right.');
+    if (user.pass_hash !== NO_PASSWORD && !checkPassword(String(req.body.current_password || ''), user.pass_hash)) throw httpError(400, 'Your current password is not right.');
     if (String(req.body.new_password).length < 6) throw httpError(400, 'Passwords need at least 6 characters.');
     run('UPDATE users SET pass_hash = ? WHERE id = ?', hashPassword(String(req.body.new_password)), req.user.id);
   }

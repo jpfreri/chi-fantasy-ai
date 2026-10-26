@@ -4,8 +4,8 @@
   "description": "Intramural fantasy leagues for Chi Lambda Phi at Oklahoma Christian University",
   "main": "src/server.js",
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning src/server.js",
-    "dev": "node --disable-warning=ExperimentalWarning --watch src/server.js",
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
+    "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch src/server.js",
     "seed": "node --disable-warning=ExperimentalWarning scripts/seed.js",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
   },

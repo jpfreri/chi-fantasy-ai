@@ -204,6 +204,7 @@ function pageLogin() {
         <div class="field"><label>Password</label><input name="password" type="password" autocomplete="current-password" required></div>
         <button type="submit">Log in</button>
       </form>
+      ${googleButton()}
       <p class="switch muted small">New here? <a href="#/register">Create an account</a></p>
     </div>`);
   forms.login = async (d) => {
@@ -211,6 +212,18 @@ function pageLogin() {
     await refreshMe();
     location.hash = '#/';
   };
+}
+
+// "Continue with Google" sends the browser through /auth/google. On sign-up the club code goes along.
+function googleButton(withCode) {
+  if (!S.meta.google) return '';
+  actions.google = () => {
+    const code = withCode ? document.querySelector('input[name=club_code]')?.value.trim() : '';
+    if (withCode && !code) return toast('Enter the club code first', true);
+    location.href = '/auth/google' + (code ? `?club_code=${encodeURIComponent(code)}` : '');
+  };
+  return `<div class="or muted small">or</div>
+    <button class="secondary google" data-act="google"><span class="g">G</span> Continue with Google</button>`;
 }
 
 function pageRegister() {
@@ -226,6 +239,7 @@ function pageRegister() {
         ${S.meta.needsClubCode ? '<div class="field"><label>Club code (ask a commissioner)</label><input name="club_code" required></div>' : ''}
         <button type="submit">Create account</button>
       </form>
+      ${googleButton(S.meta.needsClubCode)}
       <p class="switch muted small">Already have one? <a href="#/login">Log in</a></p>
     </div>`);
   forms.register = async (d) => {
@@ -246,11 +260,17 @@ function pageAccount() {
         <button>Save</button>
       </form>
       <form class="card" data-form="pw">
-        <h2>Change password</h2>
-        <div class="field"><label>Current password</label><input name="current_password" type="password" required></div>
+        <h2>${S.me.has_password ? 'Change password' : 'Set a password'}</h2>
+        ${S.me.has_password ? '' : '<p class="muted small">You signed up with Google. Set a password if you also want to log in with your username.</p>'}
+        ${S.me.has_password ? '<div class="field"><label>Current password</label><input name="current_password" type="password" required></div>' : ''}
         <div class="field"><label>New password</label><input name="new_password" type="password" required></div>
-        <button>Change password</button>
+        <button>${S.me.has_password ? 'Change password' : 'Set password'}</button>
       </form>
+      ${S.meta.google ? `<div class="card">
+        <h2>Google</h2>
+        ${S.me.email ? `<p>Linked to <strong>${esc(S.me.email)}</strong>. You can sign in with Google.</p>` : '<p class="muted">Link your Google account so you can sign in with it.</p>'}
+        <a class="btn secondary" href="/auth/google">${S.me.email ? 'Link a different Google account' : 'Link Google account'}</a>
+      </div>` : ''}
     </div>`);
   forms.name = async (d) => {
     await PUT('/api/me', d);
@@ -261,7 +281,10 @@ function pageAccount() {
   forms.pw = async (d, f) => {
     await PUT('/api/me', d);
     f.reset();
-    toast('Password changed');
+    const set = !S.me.has_password;
+    await refreshMe();
+    if (set) pageAccount();
+    toast(set ? 'Password set' : 'Password changed');
   };
 }
 
@@ -1233,6 +1256,12 @@ async function pageAdmin(tab = 'members', arg) {
   S.meta = await GET('/api/meta');
   S.sports = Object.fromEntries(S.meta.sports.map((s) => [s.key, s]));
   await refreshMe();
+  // A failed Google sign-in comes back as ?auth_error=...; show it once and tidy the URL.
+  const authError = new URLSearchParams(location.search).get('auth_error');
+  if (authError) {
+    history.replaceState(null, '', '/' + location.hash);
+    setTimeout(() => toast(authError, true), 300);
+  }
   window.addEventListener('hashchange', route);
   route();
 })();
