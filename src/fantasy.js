@@ -3,14 +3,38 @@ const { scoreLine, defaultScoring } = require('./sports');
 
 const EPOCH = '1970-01-01T00:00:00.000Z';
 
+// The fantasy multiplier for a stat line: the multiplier of the team the player played for in that
+// game. That is their own team if it is in the game, otherwise the club side of the game.
+function lineMultiplier(r) {
+  if (r.im_team_id === r.home_team_id && r.home_mult != null) return r.home_mult;
+  if (r.im_team_id === r.away_team_id && r.away_mult != null) return r.away_mult;
+  if (r.home_club) return r.home_mult;
+  if (r.away_club) return r.away_mult;
+  return 1;
+}
+
+const STAT_LINE_SQL = `
+  SELECT gs.game_id, gs.athlete_id, gs.stats, g.starts_at, g.week, g.status, g.home_team_id, g.away_team_id,
+         a.im_team_id, h.multiplier AS home_mult, h.is_club AS home_club, aw.multiplier AS away_mult, aw.is_club AS away_club
+    FROM game_stats gs JOIN games g ON g.id = gs.game_id JOIN athletes a ON a.id = gs.athlete_id
+    LEFT JOIN im_teams h ON h.id = g.home_team_id LEFT JOIN im_teams aw ON aw.id = g.away_team_id`;
+
+function toLine(r) {
+  return { ...r, stats: JSON.parse(r.stats), mult: lineMultiplier(r) };
+}
+
+// Fantasy points for a stat line, after the team multiplier.
+function linePoints(line, scoring) {
+  return Math.round(scoreLine(line.stats, scoring) * line.mult * 100) / 100;
+}
+
 // Every stat line from games that are live or final in a sport.
 function sportStatLines(sport) {
-  return all(
-    `SELECT gs.game_id, gs.athlete_id, gs.stats, g.starts_at, g.week, g.status
-       FROM game_stats gs JOIN games g ON g.id = gs.game_id
-      WHERE g.sport = ? AND g.status IN ('live', 'final')`,
-    sport
-  ).map((r) => ({ ...r, stats: JSON.parse(r.stats) }));
+  return all(`${STAT_LINE_SQL} WHERE g.sport = ? AND g.status IN ('live', 'final')`, sport).map(toLine);
+}
+
+function statLinesFor(where, ...params) {
+  return all(`${STAT_LINE_SQL} WHERE ${where}`, ...params).map(toLine);
 }
 
 // Season fantasy points per athlete id under a scoring config.
@@ -18,7 +42,7 @@ function athleteTotals(sport, scoring = defaultScoring(sport)) {
   const totals = {};
   for (const line of sportStatLines(sport)) {
     const t = (totals[line.athlete_id] ||= { points: 0, games: 0 });
-    t.points += scoreLine(line.stats, scoring);
+    t.points += linePoints(line, scoring);
     t.games += 1;
   }
   for (const t of Object.values(totals)) t.points = Math.round(t.points * 100) / 100;
@@ -43,7 +67,7 @@ function getLeague(id) {
 
 function leagueTeams(leagueId) {
   return all(
-    `SELECT lt.*, u.display_name AS owner_name, u.username
+    `SELECT lt.id, lt.league_id, lt.user_id, lt.name, lt.draft_slot, u.display_name AS owner_name, u.username
        FROM league_teams lt JOIN users u ON u.id = lt.user_id
       WHERE lt.league_id = ? ORDER BY COALESCE(lt.draft_slot, 999), lt.id`,
     leagueId
@@ -75,7 +99,7 @@ function standings(league) {
         ? l.starts_at >= e.acquired_at && (!e.dropped_at || l.starts_at < e.dropped_at)
         : !e.dropped_at;
       if (!counts) continue;
-      const p = scoreLine(l.stats, league.scoring);
+      const p = linePoints(l, league.scoring);
       pts += p;
       team.weeks[l.week] = (team.weeks[l.week] || 0) + p;
       const wk = (team.byWeek[l.week] ||= {});
@@ -246,7 +270,7 @@ function log(leagueId, text) {
 // ---------- Draft ----------
 
 function draftOrder(leagueId) {
-  return all('SELECT * FROM league_teams WHERE league_id = ? ORDER BY draft_slot, id', leagueId);
+  return all('SELECT id, league_id, user_id, name, draft_slot FROM league_teams WHERE league_id = ? ORDER BY draft_slot, id', leagueId);
 }
 
 // Snake order: round 1 goes 1..n, round 2 goes n..1, and so on.
@@ -341,6 +365,70 @@ function processExpiredPicks(leagueId) {
   });
 }
 
+// ---------- Secret bots ----------
+
+const BOT_MOVE_EVERY_MS = 6 * 60 * 60 * 1000;
+
+function botTeams(leagueId) {
+  return all(
+    `SELECT lt.id, lt.name, lt.bot_checked_at, u.bot FROM league_teams lt JOIN users u ON u.id = lt.user_id
+      WHERE lt.league_id = ? AND u.bot IS NOT NULL`,
+    leagueId
+  );
+}
+
+// The winner wants the most points, the loser the fewest. Random tiebreaks so it does not look scripted.
+function rankFor(bot, pool) {
+  const dir = bot === 'lose' ? 1 : -1;
+  return [...pool].sort((a, b) => dir * (a.points - b.points) || Math.random() - 0.5);
+}
+
+// Bots draft the moment they are on the clock, and during the season make at most one roster move
+// every few hours: the winner swaps its worst player for the best free agent, the loser does the opposite.
+function runBots(leagueId) {
+  const bots = botTeams(leagueId);
+  if (!bots.length) return;
+  tx(() => {
+    for (let guard = 0; guard < 500; guard++) {
+      const league = getLeague(leagueId);
+      if (!league || league.status !== 'drafting' || league.draft_paused) break;
+      const bot = bots.find((b) => b.id === draftState(league).onClock?.id);
+      if (!bot) break;
+      const choice = rankFor(bot.bot, availableAthletes(league))[0];
+      if (!choice) break;
+      makePick(league, choice.id);
+    }
+    const league = getLeague(leagueId);
+    if (league?.status !== 'active') return;
+    const now = Date.now();
+    for (const bot of bots) {
+      if (bot.bot_checked_at && now - bot.bot_checked_at < BOT_MOVE_EVERY_MS) continue;
+      run('UPDATE league_teams SET bot_checked_at = ? WHERE id = ?', now, bot.id);
+      const totals = athleteTotals(league.sport, league.scoring);
+      const roster = all(
+        `SELECT r.athlete_id, a.name FROM roster r JOIN athletes a ON a.id = r.athlete_id
+          WHERE r.league_team_id = ? AND r.dropped_at IS NULL`,
+        bot.id
+      ).map((r) => ({ ...r, points: totals[r.athlete_id]?.points || 0 }));
+      const pool = rankFor(bot.bot, availableAthletes(league));
+      if (!pool.length) continue;
+      const want = pool[0];
+      // Keep the player this bot likes least: lowest scorer for the winner, highest for the loser.
+      const cut = rankFor(bot.bot, roster).pop();
+      const better = bot.bot === 'lose' ? want.points < (cut?.points ?? Infinity) : want.points > (cut?.points ?? -Infinity);
+      const at = new Date().toISOString();
+      if (roster.length < league.roster_size) {
+        run('INSERT INTO roster (league_id, league_team_id, athlete_id, acquired_at, how) VALUES (?, ?, ?, ?, ?)', league.id, bot.id, want.id, at, 'free agent');
+        log(league.id, `${bot.name} added ${want.name}`);
+      } else if (cut && better) {
+        run('UPDATE roster SET dropped_at = ? WHERE league_team_id = ? AND athlete_id = ? AND dropped_at IS NULL', at, bot.id, cut.athlete_id);
+        run('INSERT INTO roster (league_id, league_team_id, athlete_id, acquired_at, how) VALUES (?, ?, ?, ?, ?)', league.id, bot.id, want.id, at, 'free agent');
+        log(league.id, `${bot.name} added ${want.name} and dropped ${cut.name}`);
+      }
+    }
+  });
+}
+
 function httpError(status, message) {
   const err = new Error(message);
   err.status = status;
@@ -348,6 +436,6 @@ function httpError(status, message) {
 }
 
 module.exports = {
-  EPOCH, sportStatLines, athleteTotals, athletesWithPoints, getLeague, leagueTeams, standings, log,
-  draftOrder, draftState, leagueView, generateSchedule, defaultRegularWeeks, roundRobin, availableAthletes, makePick, processExpiredPicks, httpError,
+  EPOCH, sportStatLines, statLinesFor, linePoints, athleteTotals, athletesWithPoints, getLeague, leagueTeams, standings, log,
+  draftOrder, draftState, leagueView, runBots, botTeams, generateSchedule, defaultRegularWeeks, roundRobin, availableAthletes, makePick, processExpiredPicks, httpError,
 };

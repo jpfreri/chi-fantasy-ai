@@ -145,6 +145,39 @@ test('round robin gives every team one game a week and covers every pairing', ()
   assert.equal(seen.size, 10);
 });
 
+test('lower Chi teams are worth less: the team multiplier scales fantasy points', async () => {
+  // Ann (on ΧΛΦ A) scored 10 pts and 2 ast in week 1: 2x10 + 3 = 23 under this league's scoring.
+  await admin('PUT', `/api/teams/${ids.t1}`, { multiplier: 0.5 });
+  const lg = await bob('GET', `/api/leagues/${ids.league}`);
+  const ann = lg.data.myTeam.players.find((p) => p.name === 'Ann');
+  assert.equal(ann.points, 11.5);
+  await admin('PUT', `/api/teams/${ids.t1}`, { multiplier: 1 });
+});
+
+test('secret bots: the win bot drafts the best, the lose bot the worst, and only admins can tell', async () => {
+  const l = await admin('POST', '/api/leagues', { sport: 'basketball', name: 'Bot League', roster_size: 1, pick_seconds: 0 });
+  await bob('POST', `/api/leagues/${l.data.id}/join`, {});
+  assert.equal((await bob('POST', `/api/leagues/${l.data.id}/bots`, { kind: 'win' })).status, 403);
+  await admin('POST', `/api/leagues/${l.data.id}/bots`, { kind: 'win', name: 'Winners' });
+  await admin('POST', `/api/leagues/${l.data.id}/bots`, { kind: 'lose', name: 'Losers' });
+  await admin('POST', `/api/leagues/${l.data.id}/order`, { team_ids: (await admin('GET', `/api/leagues/${l.data.id}`)).data.standings.map((t) => t.id).sort((a, b) => b - a) });
+  await admin('POST', `/api/leagues/${l.data.id}/draft/start`);
+  // Both bots pick at once; then it is Bob's turn.
+  let d = await bob('GET', `/api/leagues/${l.data.id}/draft`);
+  assert.equal(d.data.picks.length, 2);
+  const pool = (await admin('GET', '/api/sports/basketball')).data.athletes.filter((a) => a.active);
+  const best = Math.max(...pool.map((a) => a.points)), worst = Math.min(...pool.map((a) => a.points));
+  const byTeam = (name) => d.data.picks.find((p) => p.league_team_id === d.data.order.find((t) => t.name === name).id);
+  const pts = (pick) => pool.find((a) => a.id === pick.athlete_id).points;
+  assert.equal(pts(byTeam('Losers')), worst);
+  assert.equal(pts(byTeam('Winners')), best);
+  assert.ok(d.data.order.every((t) => !('bot' in t)), 'members cannot see bots');
+  const seen = await admin('GET', `/api/leagues/${l.data.id}/draft`);
+  assert.deepEqual(seen.data.order.map((t) => t.bot).filter(Boolean).sort(), ['lose', 'win']);
+  const users = (await admin('GET', '/api/users')).data;
+  assert.equal(users.filter((u) => u.bot).length, 2);
+});
+
 test('the server auto-picks when the clock runs out', async () => {
   const l = await admin('POST', '/api/leagues', { sport: 'basketball', name: 'Clock League', roster_size: 1, pick_seconds: 30 });
   await bob('POST', `/api/leagues/${l.data.id}/join`, {});

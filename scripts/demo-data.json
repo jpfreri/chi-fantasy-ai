@@ -1,0 +1,460 @@
+{
+ "members": [
+  "Quin Martin",
+  "Asaiah Macon",
+  "Brody White",
+  "Cannon Poore",
+  "Carson Mauck",
+  "Cotter Hensal",
+  "Eli Klafter",
+  "Eric Talamantes",
+  "Grayson Harrod",
+  "Jacob McWatters",
+  "Jaxon Santos",
+  "Jeremiah Lorance",
+  "JP Freri",
+  "Landon Parker",
+  "Luke Patterson",
+  "Noah Page",
+  "Steven Holland",
+  "Zion Cripps",
+  "Blake Smith",
+  "Caleb Bartee",
+  "Carsen Hitt",
+  "Gabe Dittmeyer",
+  "Gavin Meyer",
+  "Gavin Schmidt",
+  "Gus Reed",
+  "Ian Hammersmith",
+  "JT Howard",
+  "Micah Heflin",
+  "Nathyn McCrea",
+  "Payden Johnston",
+  "Robert Burke",
+  "Ryan Dillinger",
+  "Santiago Torres",
+  "Shepard Schuermann",
+  "Stetson Johnson",
+  "Zachary Anspach",
+  "Zane Wasson",
+  "Braxton Driskill",
+  "Brayden Thompson",
+  "Bryce Miller",
+  "Bryce Russell",
+  "Conagher Hardaway",
+  "Connor Wingert",
+  "Corban Craghead",
+  "Eli King",
+  "Ethan Zeller",
+  "Greyson Alexander",
+  "Jackson Hutchison",
+  "James Miller",
+  "Jansen Carter",
+  "Joe McKinley",
+  "Kaevon White",
+  "Kaden Jimenez",
+  "Owen Hohmann",
+  "Quinten Talamantes",
+  "Reid Miller",
+  "Tyler Utley"
+ ],
+ "teams": {
+  "softball": {
+   "Jacob McWatters": "A",
+   "Luke Patterson": "A",
+   "Gus Reed": "A",
+   "Reid Miller": "A",
+   "Eric Talamantes": "A",
+   "JT Howard": "A",
+   "Steven Holland": "A",
+   "Owen Hohmann": "A",
+   "Cannon Poore": "A",
+   "Landon Parker": "A"
+  },
+  "flag_football": {
+   "Cotter Hensal": "A",
+   "Zion Cripps": "A",
+   "Blake Smith": "A",
+   "Noah Page": "A",
+   "Corban Craghead": "A",
+   "Steven Holland": "A",
+   "Asaiah Macon": "A",
+   "Gus Reed": "A",
+   "Jacob McWatters": "A",
+   "Gabe Dittmeyer": "A",
+   "Landon Parker": "A",
+   "Gavin Meyer": "A",
+   "JT Howard": "B",
+   "James Miller": "B",
+   "Cannon Poore": "B",
+   "Brayden Thompson": "B",
+   "Nathyn McCrea": "B",
+   "Jaxon Santos": "B",
+   "Owen Hohmann": "B",
+   "Reid Miller": "B",
+   "Tyler Utley": "B",
+   "Shepard Schuermann": "B",
+   "Carson Mauck": "B",
+   "Grayson Harrod": "B",
+   "Jeremiah Lorance": "B",
+   "Carsen Hitt": "A",
+   "Quinten Talamantes": "B"
+  },
+  "basketball": {
+   "Landon Parker": "A",
+   "Quin Martin": "A",
+   "Blake Smith": "A",
+   "Zion Cripps": "A",
+   "Luke Patterson": "B",
+   "Connor Wingert": "B",
+   "Jaxon Santos": "B",
+   "Cotter Hensal": "B",
+   "Owen Hohmann": "B",
+   "Asaiah Macon": "B",
+   "Jacob McWatters": "C",
+   "Noah Page": "C",
+   "Caleb Bartee": "C",
+   "Nathyn McCrea": "C",
+   "Reid Miller": "C",
+   "Tyler Utley": "C",
+   "Gabe Dittmeyer": "C",
+   "JT Howard": "C",
+   "Cannon Poore": "C",
+   "Zane Wasson": "C",
+   "Braxton Driskill": "C",
+   "Shepard Schuermann": "C"
+  }
+ },
+ "positions": {
+  "flag_football": {
+   "Cotter Hensal": "WR",
+   "Zion Cripps": "DB",
+   "Noah Page": "WR",
+   "Corban Craghead": "DB",
+   "Steven Holland": "QB",
+   "Blake Smith": "WR",
+   "Asaiah Macon": "WR",
+   "Gus Reed": "DB",
+   "Jacob McWatters": "WR",
+   "Gabe Dittmeyer": "DB",
+   "Landon Parker": "WR",
+   "Gavin Meyer": "DB",
+   "JT Howard": "WR",
+   "James Miller": "DB",
+   "Cannon Poore": "WR",
+   "Brayden Thompson": "DB",
+   "Nathyn McCrea": "DB",
+   "Jaxon Santos": "WR",
+   "Owen Hohmann": "DB",
+   "Reid Miller": "WR",
+   "Tyler Utley": "DB",
+   "Shepard Schuermann": "WR",
+   "Carson Mauck": "DB"
+  }
+ },
+ "totals": {
+  "softball": {
+   "Jacob McWatters": {
+    "ab": 19,
+    "single": 9,
+    "double": 2,
+    "triple": 3,
+    "rbi": 5,
+    "e": 3
+   },
+   "Luke Patterson": {
+    "ab": 19,
+    "single": 9,
+    "double": 1,
+    "rbi": 8
+   },
+   "Gus Reed": {
+    "ab": 16,
+    "single": 4,
+    "double": 2,
+    "triple": 1,
+    "rbi": 9,
+    "e": 1
+   },
+   "Reid Miller": {
+    "ab": 19,
+    "single": 1,
+    "double": 5,
+    "triple": 1,
+    "rbi": 7
+   },
+   "Eric Talamantes": {
+    "ab": 18,
+    "single": 3,
+    "double": 2,
+    "triple": 1,
+    "rbi": 4
+   },
+   "JT Howard": {
+    "ab": 19,
+    "single": 6,
+    "double": 3,
+    "hr": 1,
+    "rbi": 6,
+    "e": 3
+   },
+   "Steven Holland": {
+    "ab": 18,
+    "single": 2,
+    "double": 2,
+    "hr": 1,
+    "rbi": 4,
+    "e": 1
+   },
+   "Owen Hohmann": {
+    "ab": 18,
+    "single": 8,
+    "double": 2,
+    "rbi": 2
+   },
+   "Cannon Poore": {
+    "ab": 18,
+    "single": 4,
+    "double": 4,
+    "hr": 1,
+    "rbi": 4
+   },
+   "Landon Parker": {
+    "ab": 18,
+    "single": 6,
+    "double": 1,
+    "triple": 1,
+    "rbi": 2
+   }
+  },
+  "flag_football": {
+   "Cotter Hensal": {
+    "rec": 14,
+    "rec_yds": 120,
+    "rec_td": 2
+   },
+   "Zion Cripps": {
+    "flag_pull": 12,
+    "pbu": 2,
+    "tfl": 7,
+    "sack": 7
+   },
+   "Blake Smith": {
+    "rec": 10,
+    "rec_yds": 222,
+    "rec_td": 5,
+    "flag_pull": 6
+   },
+   "Noah Page": {
+    "rec": 4,
+    "rec_yds": 46,
+    "rec_td": 1,
+    "flag_pull": 9,
+    "pbu": 3
+   },
+   "Corban Craghead": {
+    "flag_pull": 12,
+    "tfl": 6,
+    "sack": 6
+   },
+   "Steven Holland": {
+    "pass_yds": 632,
+    "rush_yds": 165,
+    "pass_td": 13,
+    "int_thrown": 3,
+    "flag_pull": 5,
+    "pbu": 1
+   },
+   "Asaiah Macon": {
+    "rec": 9,
+    "rec_yds": 79,
+    "rec_td": 1,
+    "flag_pull": 9,
+    "pbu": 1,
+    "def_int": 1
+   },
+   "Gus Reed": {
+    "flag_pull": 5,
+    "pbu": 1
+   },
+   "Jacob McWatters": {
+    "rec": 4,
+    "rec_yds": 95,
+    "rec_td": 3
+   },
+   "Gabe Dittmeyer": {
+    "flag_pull": 12,
+    "pbu": 2
+   },
+   "Landon Parker": {
+    "rec": 8,
+    "rec_yds": 70,
+    "rec_td": 1
+   },
+   "Gavin Meyer": {
+    "flag_pull": 9,
+    "pbu": 3
+   },
+   "JT Howard": {},
+   "James Miller": {},
+   "Cannon Poore": {},
+   "Brayden Thompson": {},
+   "Nathyn McCrea": {},
+   "Jaxon Santos": {},
+   "Owen Hohmann": {},
+   "Reid Miller": {},
+   "Tyler Utley": {},
+   "Shepard Schuermann": {},
+   "Carson Mauck": {}
+  },
+  "basketball": {
+   "Landon Parker": {
+    "pts": 23,
+    "threes": 4,
+    "ast": 14,
+    "reb": 22,
+    "stl": 11,
+    "tov": 16
+   },
+   "Quin Martin": {
+    "pts": 25,
+    "threes": 1,
+    "ast": 2,
+    "reb": 18,
+    "stl": 3,
+    "tov": 3
+   },
+   "Blake Smith": {
+    "pts": 47,
+    "threes": 5,
+    "ast": 2,
+    "reb": 37,
+    "blk": 7,
+    "stl": 5,
+    "tov": 3
+   },
+   "Zion Cripps": {
+    "pts": 22,
+    "threes": 6,
+    "reb": 7,
+    "stl": 2,
+    "tov": 6
+   },
+   "Luke Patterson": {
+    "pts": 7,
+    "threes": 1,
+    "ast": 5,
+    "reb": 2,
+    "stl": 1
+   },
+   "Connor Wingert": {
+    "pts": 6,
+    "ast": 1,
+    "reb": 1,
+    "stl": 1
+   },
+   "Jaxon Santos": {
+    "pts": 3,
+    "threes": 1,
+    "reb": 2,
+    "stl": 1
+   },
+   "Cotter Hensal": {},
+   "Owen Hohmann": {
+    "pts": 2,
+    "ast": 2,
+    "stl": 1
+   },
+   "Asaiah Macon": {
+    "pts": 2,
+    "ast": 1
+   },
+   "Jacob McWatters": {
+    "pts": 4,
+    "ast": 1,
+    "reb": 4,
+    "blk": 1,
+    "tov": 7
+   },
+   "Noah Page": {
+    "pts": 2,
+    "reb": 2,
+    "blk": 1,
+    "tov": 1
+   },
+   "Caleb Bartee": {
+    "pts": 6,
+    "threes": 2,
+    "reb": 3,
+    "stl": 1,
+    "tov": 3
+   },
+   "Nathyn McCrea": {
+    "pts": 2,
+    "ast": 3,
+    "reb": 3,
+    "stl": 1,
+    "tov": 7
+   },
+   "Reid Miller": {
+    "pts": 5,
+    "threes": 1,
+    "ast": 1,
+    "reb": 7,
+    "stl": 4,
+    "tov": 1
+   },
+   "Tyler Utley": {
+    "pts": 12,
+    "ast": 1,
+    "reb": 6,
+    "stl": 5,
+    "tov": 1
+   },
+   "Gabe Dittmeyer": {
+    "stl": 2,
+    "tov": 3
+   },
+   "JT Howard": {
+    "reb": 1
+   },
+   "Cannon Poore": {
+    "pts": 3,
+    "reb": 4,
+    "tov": 3
+   },
+   "Zane Wasson": {
+    "pts": 6,
+    "reb": 5,
+    "stl": 1,
+    "tov": 1
+   },
+   "Braxton Driskill": {},
+   "Shepard Schuermann": {}
+  }
+ },
+ "basketball_gp": {
+  "Landon Parker": 4,
+  "Quin Martin": 4,
+  "Blake Smith": 4,
+  "Zion Cripps": 4,
+  "Luke Patterson": 1,
+  "Connor Wingert": 1,
+  "Jaxon Santos": 1,
+  "Cotter Hensal": 0,
+  "Owen Hohmann": 1,
+  "Asaiah Macon": 1,
+  "Jacob McWatters": 3,
+  "Noah Page": 2,
+  "Caleb Bartee": 2,
+  "Nathyn McCrea": 3,
+  "Reid Miller": 3,
+  "Tyler Utley": 3,
+  "Gabe Dittmeyer": 2,
+  "JT Howard": 2,
+  "Cannon Poore": 3,
+  "Zane Wasson": 3,
+  "Braxton Driskill": 3,
+  "Shepard Schuermann": 1
+ }
+}

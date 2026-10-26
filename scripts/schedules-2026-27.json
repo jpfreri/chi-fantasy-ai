@@ -1,0 +1,1110 @@
+{
+ "games": {
+  "softball": [
+   {
+    "starts_at": "2026-09-01T19:00:00-05:00",
+    "location": "North Field",
+    "home": "Chi B",
+    "away": "Alpha B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-01T19:00:00-05:00",
+    "location": "South Field",
+    "home": "Gamma A",
+    "away": "Fresh W",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-01T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Delta B",
+    "away": "Fresh MB",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-01T20:00:00-05:00",
+    "location": "South Field",
+    "home": "Theta",
+    "away": "Lambda",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-01T21:00:00-05:00",
+    "location": "North Field",
+    "home": "Delta A",
+    "away": "Fresh MA",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-01T21:00:00-05:00",
+    "location": "South Field",
+    "home": "Lambda B",
+    "away": "Gamma B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-03T19:00:00-05:00",
+    "location": "North Field",
+    "home": "Lambda B",
+    "away": "Fresh W",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-03T19:00:00-05:00",
+    "location": "South Field",
+    "home": "Kappa B",
+    "away": "Fresh MB",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-03T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Gamma A",
+    "away": "Theta",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-03T20:00:00-05:00",
+    "location": "South Field",
+    "home": "Kappa A",
+    "away": "Fresh MA",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-03T21:00:00-05:00",
+    "location": "North Field",
+    "home": "Beta",
+    "away": "Gamma B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-03T21:00:00-05:00",
+    "location": "South Field",
+    "home": "Delta B",
+    "away": "Chi B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-03T22:00:00-05:00",
+    "location": "South Field",
+    "home": "Delta A",
+    "away": "Chi A",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-07T19:00:00-05:00",
+    "location": "North Field",
+    "home": "Delta B",
+    "away": "Kappa B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-07T19:00:00-05:00",
+    "location": "South Field",
+    "home": "Beta",
+    "away": "Fresh W",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-07T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Delta A",
+    "away": "Kappa A",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-07T20:00:00-05:00",
+    "location": "South Field",
+    "home": "Gamma",
+    "away": "Lambda B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-07T21:00:00-05:00",
+    "location": "North Field",
+    "home": "Alpha B",
+    "away": "Fresh MB",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-07T21:00:00-05:00",
+    "location": "South Field",
+    "home": "Gamma B",
+    "away": "Lambda",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-10T19:00:00-05:00",
+    "location": "North Field",
+    "home": "Lambda",
+    "away": "Fresh W",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-10T19:00:00-05:00",
+    "location": "South Field",
+    "home": "Fresh MB",
+    "away": "Chi B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-10T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Lambda B",
+    "away": "Beta",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-10T20:00:00-05:00",
+    "location": "South Field",
+    "home": "Fresh MA",
+    "away": "Chi A",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-10T21:00:00-05:00",
+    "location": "North Field",
+    "home": "Gamma B",
+    "away": "Theta",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-10T21:00:00-05:00",
+    "location": "South Field",
+    "home": "Alpha B",
+    "away": "Kappa B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-09-14T19:00:00-05:00",
+    "location": "North Field",
+    "home": "Chi B",
+    "away": "Kappa B",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-09-14T19:00:00-05:00",
+    "location": "South Field",
+    "home": "Lambda",
+    "away": "Lambda B",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-09-14T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Chi A",
+    "away": "Kappa A",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-09-14T20:00:00-05:00",
+    "location": "South Field",
+    "home": "Fresh W",
+    "away": "Theta",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-09-14T21:00:00-05:00",
+    "location": "North Field",
+    "home": "Delta B",
+    "away": "Alpha B",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-09-14T21:00:00-05:00",
+    "location": "South Field",
+    "home": "Gamma A",
+    "away": "Beta",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-09-15T19:00:00-05:00",
+    "location": "North Field",
+    "home": "Fresh W",
+    "away": "Gamma B",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-09-15T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Gamma A",
+    "away": "Lambda",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-09-15T21:00:00-05:00",
+    "location": "North Field",
+    "home": "Theta",
+    "away": "Beta",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-09-17T19:00:00-05:00",
+    "location": "North Field",
+    "home": "Lambda",
+    "away": "Beta",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-09-17T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Theta",
+    "away": "Lambda B",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-09-20T19:30:00-05:00",
+    "location": "North Field",
+    "label": "1 vs. 4 MA",
+    "week": 4
+   },
+   {
+    "starts_at": "2026-09-20T19:30:00-05:00",
+    "location": "South Field",
+    "label": "2 vs. 3 W",
+    "week": 4
+   },
+   {
+    "starts_at": "2026-09-20T20:30:00-05:00",
+    "location": "North Field",
+    "label": "2 vs. 3 MA",
+    "week": 4
+   },
+   {
+    "starts_at": "2026-09-20T20:30:00-05:00",
+    "location": "South Field",
+    "label": "1 vs. 4 W",
+    "week": 4
+   },
+   {
+    "starts_at": "2026-09-21T19:00:00-05:00",
+    "location": "North Field",
+    "label": "Women's 3rd",
+    "week": 4
+   },
+   {
+    "starts_at": "2026-09-21T20:00:00-05:00",
+    "location": "North Field",
+    "label": "Men's 3rd",
+    "week": 4
+   },
+   {
+    "starts_at": "2026-09-21T21:00:00-05:00",
+    "location": "North Field",
+    "label": "Women's Championship",
+    "week": 4
+   },
+   {
+    "starts_at": "2026-09-21T22:00:00-05:00",
+    "location": "North Field",
+    "label": "Men's Championship",
+    "week": 4
+   }
+  ],
+  "flag_football": [
+   {
+    "starts_at": "2026-09-28T19:00:00-05:00",
+    "location": "North Field",
+    "home": "Delta B",
+    "away": "Kappa B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-28T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Old Guys",
+    "away": "Delta A",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-28T20:00:00-05:00",
+    "location": "South Field",
+    "home": "Alpha B",
+    "away": "Chi B2",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-28T21:00:00-05:00",
+    "location": "North Field",
+    "home": "Fresh MA",
+    "away": "Chi A",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-28T21:00:00-05:00",
+    "location": "South Field",
+    "home": "Gamma B",
+    "away": "Gamma",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-28T22:00:00-05:00",
+    "location": "North Field",
+    "home": "Fresh MB",
+    "away": "Chi B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-09-28T22:00:00-05:00",
+    "location": "South Field",
+    "home": "Fresh W",
+    "away": "Theta",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-10-01T19:00:00-05:00",
+    "location": "South Field",
+    "home": "Fresh MB",
+    "away": "Delta B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-10-01T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Theta",
+    "away": "Gamma B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-10-01T20:00:00-05:00",
+    "location": "South Field",
+    "home": "Chi A",
+    "away": "Old Guys",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-10-01T21:00:00-05:00",
+    "location": "North Field",
+    "home": "Lambda",
+    "away": "Fresh W",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-10-01T21:00:00-05:00",
+    "location": "South Field",
+    "home": "Kappa A",
+    "away": "Fresh MA",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-10-01T22:00:00-05:00",
+    "location": "North Field",
+    "home": "Alpha B",
+    "away": "Kappa B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-10-01T22:00:00-05:00",
+    "location": "South Field",
+    "home": "Chi B2",
+    "away": "Chi B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-10-05T19:00:00-05:00",
+    "location": "North Field",
+    "home": "Chi B",
+    "away": "Kappa B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-05T19:00:00-05:00",
+    "location": "South Field",
+    "home": "Chi B2",
+    "away": "Fresh MB",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-05T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Old Guys",
+    "away": "Kappa A",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-05T20:00:00-05:00",
+    "location": "South Field",
+    "home": "Gamma B",
+    "away": "Lambda",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-05T21:00:00-05:00",
+    "location": "North Field",
+    "home": "Delta B",
+    "away": "Alpha B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-05T21:00:00-05:00",
+    "location": "South Field",
+    "home": "Gamma",
+    "away": "Theta",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-05T22:00:00-05:00",
+    "location": "North Field",
+    "home": "Delta A",
+    "away": "Chi A",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-06T19:00:00-05:00",
+    "location": "North Field",
+    "home": "Chi A",
+    "away": "Kappa A",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-06T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Chi B2",
+    "away": "Delta B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-06T20:00:00-05:00",
+    "location": "South Field",
+    "home": "Chi B",
+    "away": "Alpha B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-06T21:00:00-05:00",
+    "location": "North Field",
+    "home": "Delta A",
+    "away": "Fresh MA",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-06T21:00:00-05:00",
+    "location": "South Field",
+    "home": "Gamma",
+    "away": "Fresh W",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-06T22:00:00-05:00",
+    "location": "North Field",
+    "home": "Kappa B",
+    "away": "Fresh MB",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-06T22:00:00-05:00",
+    "location": "South Field",
+    "home": "Theta",
+    "away": "Lambda",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-08T19:00:00-05:00",
+    "location": "North Field",
+    "home": "Chi B",
+    "away": "Delta B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-08T19:00:00-05:00",
+    "location": "South Field",
+    "home": "Fresh MB",
+    "away": "Alpha B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-08T20:00:00-05:00",
+    "location": "North Field",
+    "home": "Fresh W",
+    "away": "Gamma B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-08T20:00:00-05:00",
+    "location": "South Field",
+    "home": "Fresh MA",
+    "away": "Old Guys",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-08T21:00:00-05:00",
+    "location": "North Field",
+    "home": "Lambda",
+    "away": "Gamma",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-08T21:00:00-05:00",
+    "location": "South Field",
+    "home": "Kappa B",
+    "away": "Chi B2",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-08T22:00:00-05:00",
+    "location": "South Field",
+    "home": "Kappa A",
+    "away": "Delta A",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-10-19T19:00:00-05:00",
+    "location": "North Field",
+    "label": "W 1vs.4",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-10-19T20:00:00-05:00",
+    "location": "North Field",
+    "label": "W 2vs.3",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-10-19T21:00:00-05:00",
+    "location": "North Field",
+    "label": "MB 1vs.4",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-10-19T22:00:00-05:00",
+    "location": "North Field",
+    "label": "MB 2vs.3",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-10-20T19:00:00-05:00",
+    "location": "North Field",
+    "label": "WA 3rd",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-10-20T20:00:00-05:00",
+    "location": "North Field",
+    "label": "MB 3rd",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-10-20T21:00:00-05:00",
+    "location": "North Field",
+    "label": "MA 1vs.4",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-10-20T22:00:00-05:00",
+    "location": "North Field",
+    "label": "MA 2vs.3",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-10-22T19:00:00-05:00",
+    "location": "North Field",
+    "label": "MA 3rd",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-10-22T20:00:00-05:00",
+    "location": "North Field",
+    "label": "MB Champ",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-10-22T21:00:00-05:00",
+    "location": "North Field",
+    "label": "W Champ",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-10-22T22:00:00-05:00",
+    "location": "North Field",
+    "label": "MA Champ",
+    "week": 3
+   }
+  ],
+  "volleyball": [
+   {
+    "starts_at": "2026-11-03T19:00:00-06:00",
+    "location": "Rec",
+    "home": "Gamma A",
+    "away": "Theta A",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-03T19:00:00-06:00",
+    "location": "Nest",
+    "home": "Delta B",
+    "away": "Fresh MB",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-03T19:45:00-06:00",
+    "location": "Rec",
+    "home": "Gamma B",
+    "away": "Lambda B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-03T19:45:00-06:00",
+    "location": "Nest",
+    "home": "Delta A",
+    "away": "Fresh MA",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-03T20:30:00-06:00",
+    "location": "Rec",
+    "home": "Fresh WA",
+    "away": "Lambda A",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-03T20:30:00-06:00",
+    "location": "Nest",
+    "home": "Chi B",
+    "away": "Kappa B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-03T21:15:00-06:00",
+    "location": "Rec",
+    "home": "Fresh WB",
+    "away": "Beta B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-03T21:15:00-06:00",
+    "location": "Nest",
+    "home": "Chi A",
+    "away": "Kappa A",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-03T22:00:00-06:00",
+    "location": "Rec",
+    "home": "Lambda C",
+    "away": "Gamma C",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-03T22:00:00-06:00",
+    "location": "Nest",
+    "home": "Chi C",
+    "away": "Delta C",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-03T22:45:00-06:00",
+    "location": "Rec",
+    "home": "Fresh WC",
+    "away": "Fresh WC2",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-03T22:45:00-06:00",
+    "location": "Nest",
+    "home": "Kappa C",
+    "away": "Fresh MC",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-04T20:30:00-06:00",
+    "location": "Nest",
+    "home": "Gamma A",
+    "away": "Fresh WA",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-04T20:30:00-06:00",
+    "location": "Rec",
+    "home": "Delta B",
+    "away": "Kappa B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-04T21:15:00-06:00",
+    "location": "Nest",
+    "home": "Lambda B",
+    "away": "Beta B",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-04T21:15:00-06:00",
+    "location": "Rec",
+    "home": "Delta A",
+    "away": "Kappa A",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-04T22:00:00-06:00",
+    "location": "Nest",
+    "home": "Theta A",
+    "away": "Vintage",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-04T22:00:00-06:00",
+    "location": "Rec",
+    "home": "Alpha B",
+    "away": "Fresh MB",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-04T22:45:00-06:00",
+    "location": "Nest",
+    "home": "Gamma B",
+    "away": "Fresh WB",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-04T22:45:00-06:00",
+    "location": "Rec",
+    "home": "Fresh MA",
+    "away": "A Teams Best",
+    "week": 1
+   },
+   {
+    "starts_at": "2026-11-09T19:00:00-06:00",
+    "location": "Rec",
+    "home": "Vintage",
+    "away": "Fresh WA",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-09T19:00:00-06:00",
+    "location": "Nest",
+    "home": "Alpha B",
+    "away": "Kappa B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-09T19:45:00-06:00",
+    "location": "Rec",
+    "home": "Beta B",
+    "away": "Gamma B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-09T19:45:00-06:00",
+    "location": "Nest",
+    "home": "Kappa A",
+    "away": "A Teams Best",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-09T20:30:00-06:00",
+    "location": "Rec",
+    "home": "Gamma A",
+    "away": "Lambda A",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-09T20:30:00-06:00",
+    "location": "Nest",
+    "home": "Delta B",
+    "away": "Chi B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-09T21:15:00-06:00",
+    "location": "Rec",
+    "home": "Lambda B",
+    "away": "Fresh WB",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-09T21:15:00-06:00",
+    "location": "Nest",
+    "home": "Delta A",
+    "away": "Chi A",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-09T22:00:00-06:00",
+    "location": "Rec",
+    "home": "Lambda C",
+    "away": "Fresh WC2",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-09T22:00:00-06:00",
+    "location": "Nest",
+    "home": "Chi C",
+    "away": "Fresh MC",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-09T22:45:00-06:00",
+    "location": "Rec",
+    "home": "Gamma C",
+    "away": "Fresh WC",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-09T22:45:00-06:00",
+    "location": "Nest",
+    "home": "Kappa C",
+    "away": "Delta C",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-10T19:00:00-06:00",
+    "location": "Nest",
+    "home": "Fresh WA",
+    "away": "Theta A",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-10T19:00:00-06:00",
+    "location": "Rec",
+    "home": "Chi B",
+    "away": "Alpha B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-10T19:45:00-06:00",
+    "location": "Nest",
+    "home": "Gamma C",
+    "away": "Fresh WC2",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-10T19:45:00-06:00",
+    "location": "Rec",
+    "home": "Kappa A",
+    "away": "Fresh MA",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-10T20:30:00-06:00",
+    "location": "Nest",
+    "home": "Lambda A",
+    "away": "Vintage",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-10T20:30:00-06:00",
+    "location": "Rec",
+    "home": "Fresh MB",
+    "away": "Kappa B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-10T21:15:00-06:00",
+    "location": "Nest",
+    "home": "Lambda C",
+    "away": "Fresh WC",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-10T21:15:00-06:00",
+    "location": "Rec",
+    "home": "Chi A",
+    "away": "A Teams Best",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-10T22:00:00-06:00",
+    "location": "Nest",
+    "home": "Delta C",
+    "away": "Fresh MC",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-10T22:00:00-06:00",
+    "location": "Rec",
+    "home": "Kappa C",
+    "away": "Chi C",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-11T20:30:00-06:00",
+    "location": "Rec",
+    "home": "Gamma A",
+    "away": "Vintage",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-11T20:30:00-06:00",
+    "location": "Nest",
+    "home": "Chi B",
+    "away": "Fresh MB",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-11T21:15:00-06:00",
+    "location": "Nest",
+    "home": "Fresh MA",
+    "away": "Chi A",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-11T22:00:00-06:00",
+    "location": "Rec",
+    "home": "Lambda A",
+    "away": "Theta A",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-11T22:00:00-06:00",
+    "location": "Nest",
+    "home": "Delta B",
+    "away": "Alpha B",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-11T22:45:00-06:00",
+    "location": "Nest",
+    "home": "Delta A",
+    "away": "A Teams Best",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-12T19:00:00-06:00",
+    "location": "Nest",
+    "label": "WC 1vs.4",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-12T19:00:00-06:00",
+    "location": "Rec",
+    "label": "MC 1vs.4",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-12T19:45:00-06:00",
+    "location": "Nest",
+    "label": "WC 2vs.3",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-12T19:45:00-06:00",
+    "location": "Rec",
+    "label": "MC 2vs.3",
+    "week": 2
+   },
+   {
+    "starts_at": "2026-11-15T19:00:00-06:00",
+    "location": "Rec",
+    "label": "WC 3rd",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-15T19:00:00-06:00",
+    "location": "Nest",
+    "label": "MC 3rd",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-15T19:45:00-06:00",
+    "location": "Rec",
+    "label": "WC Champ",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-15T19:45:00-06:00",
+    "location": "Nest",
+    "label": "MC Champ",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-15T20:30:00-06:00",
+    "location": "Rec",
+    "label": "WB 1vs.4",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-15T20:30:00-06:00",
+    "location": "Nest",
+    "label": "MB 2vs.3",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-15T21:15:00-06:00",
+    "location": "Rec",
+    "label": "WB 2vs.3",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-15T21:15:00-06:00",
+    "location": "Nest",
+    "label": "MB 1vs.4",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-16T20:30:00-06:00",
+    "location": "Rec",
+    "label": "WA 1vs.4",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-16T20:30:00-06:00",
+    "location": "Nest",
+    "label": "MB 3rd",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-16T21:15:00-06:00",
+    "location": "Rec",
+    "label": "WA 2vs.3",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-16T21:15:00-06:00",
+    "location": "Nest",
+    "label": "MB Champ",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-16T22:00:00-06:00",
+    "location": "Rec",
+    "label": "WB 3rd",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-16T22:00:00-06:00",
+    "location": "Nest",
+    "label": "MA 2vs.3",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-16T22:45:00-06:00",
+    "location": "Rec",
+    "label": "WB Champ",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-16T22:45:00-06:00",
+    "location": "Nest",
+    "label": "MA 1vs.4",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-18T19:00:00-06:00",
+    "location": "Nest",
+    "label": "MA 3rd",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-18T19:45:00-06:00",
+    "location": "Nest",
+    "label": "MA Championship",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-18T20:30:00-06:00",
+    "location": "Nest",
+    "label": "WA 3rd",
+    "week": 3
+   },
+   {
+    "starts_at": "2026-11-18T21:15:00-06:00",
+    "location": "Nest",
+    "label": "WA Championship",
+    "week": 3
+   }
+  ]
+ },
+ "date_fixes": [
+  "volleyball: \"Tuesday, November 1\" is not a Tuesday in 2026; used Tuesday, Nov 3"
+ ]
+}

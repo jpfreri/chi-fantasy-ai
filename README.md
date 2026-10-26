@@ -12,7 +12,9 @@ npm run seed     # optional: wipes the database and loads made-up demo data
 npm start        # http://localhost:3000
 ```
 
-With the demo data, log in as `commish` (admin) or `jake`, `sam`, `luke`, `eli`, `noah`. Every password is `password`.
+With the demo data, log in as `commish` (admin) or `jp`, `quin`, `brody`, `steven`. Every password is `password`.
+
+The demo data is built from the club's own files: the 2026-27 directory (names and flag football A/B teams only), the intramural stat sheets and the 26-27 softball, flag football and volleyball schedules. They live in `scripts/demo-data.json` and `scripts/schedules-2026-27.json`. The sheets only have season totals, so the seed spreads each player's totals over his team's games at random; the totals add up exactly. Basketball has no 26-27 schedule yet, so its demo games use last season's stats against a placeholder opponent.
 
 Without the demo data, the first account you create becomes the commissioner (admin).
 
@@ -26,6 +28,20 @@ Without the demo data, the first account you create becomes the commissioner (ad
 4. **League page:** set or randomize the draft order, then start the draft. The draft room updates live for everyone. When a pick clock runs out, the server drafts the best available player.
 5. **After each game:** open it, choose **Enter score & stats**, type the box score and set the game to final. Standings update right away.
 6. After the draft, managers can add and drop free agents. A player's points only count for games that start while they are on your roster.
+
+### Chi teams and tiers
+
+Chi fields several teams per sport (for example Chi A, Chi B and Chi B2 in flag football). On a sport's **Manage** tab each team can be marked as counting for intramural points or not, and each has a fantasy multiplier: a player's fantasy points from a game are multiplied by the multiplier of the team he played for. The demo uses A ×1, B ×0.75, and the non-points teams (Softball B, Flag Football B2, Volleyball C) ×0.5. Members who are not on a listed roster go on the sport's non-points team.
+
+### Admin page
+
+- **Chi rosters:** put every member on his team in each sport.
+- **Games & stats:** every scheduled game, which ones still need stats, and an Edit button to set teams (for playoff slots), score, status and the box score. You can add subs to a box score.
+- **Fantasy rosters & bots:** move any player onto any fantasy team (optionally counting his past games), remove players, and add secret bots.
+
+### Secret bots
+
+An admin can add two kinds of bot teams to a league before its draft: one that always tries to win (drafts and picks up the best available players) and one that always tries to lose (always takes the worst). They look like ordinary members to everyone else; only admins see the 🤖 badge. Bots draft instantly when on the clock and make at most one roster move every 6 hours during the season.
 
 ### Head-to-head and playoffs
 

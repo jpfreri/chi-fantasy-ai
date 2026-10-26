@@ -143,6 +143,13 @@ function addColumn(table, column, definition) {
 }
 addColumn('leagues', 'regular_weeks', 'INTEGER NOT NULL DEFAULT 5');
 addColumn('leagues', 'playoff_teams', 'INTEGER NOT NULL DEFAULT 4');
+// Chi fields several teams per sport. Some do not count for intramural points, and stats from
+// lower teams are worth less in fantasy: each team's multiplier scales its players' points.
+addColumn('im_teams', 'for_points', 'INTEGER NOT NULL DEFAULT 1');
+addColumn('im_teams', 'multiplier', 'REAL NOT NULL DEFAULT 1');
+// Secret bot managers: 'win' always tries to win, 'lose' always tries to lose. Only admins can see this.
+addColumn('users', 'bot', 'TEXT');
+addColumn('league_teams', 'bot_checked_at', 'INTEGER');
 
 function tx(fn) {
   db.exec('BEGIN IMMEDIATE');

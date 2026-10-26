@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
 const { one, all, run, tx } = require('./db');
-const { SPORTS, defaultScoring, scoreLine } = require('./sports');
+const { SPORTS, defaultScoring } = require('./sports');
 const F = require('./fantasy');
 
 const app = express();
@@ -142,7 +142,7 @@ app.put('/api/me', needUser, wrap((req) => {
 // ---------- Users (admin) ----------
 
 app.get('/api/users', needAdmin, wrap(() =>
-  all('SELECT id, username, display_name, is_admin, created_at FROM users ORDER BY display_name')
+  all('SELECT id, username, display_name, is_admin, bot, created_at FROM users ORDER BY bot IS NOT NULL, display_name')
 ));
 
 app.put('/api/users/:id', needAdmin, wrap((req) => {
@@ -183,12 +183,13 @@ app.get('/api/home', needUser, wrap((req) => {
       } : null,
     };
   });
+  const clubGame = '(h.is_club = 1 OR a.is_club = 1)';
   const gameSql = `SELECT g.*, h.name AS home_name, a.name AS away_name FROM games g
       LEFT JOIN im_teams h ON h.id = g.home_team_id LEFT JOIN im_teams a ON a.id = g.away_team_id`;
   return {
     myTeams,
-    upcoming: all(`${gameSql} WHERE g.status != 'final' ORDER BY g.starts_at LIMIT 8`),
-    recent: all(`${gameSql} WHERE g.status = 'final' ORDER BY g.starts_at DESC LIMIT 8`),
+    upcoming: all(`${gameSql} WHERE g.status != 'final' AND ${clubGame} ORDER BY g.starts_at LIMIT 8`),
+    recent: all(`${gameSql} WHERE g.status = 'final' AND ${clubGame} ORDER BY g.starts_at DESC LIMIT 8`),
     leagues: all('SELECT id, sport, name, season, status FROM leagues ORDER BY id DESC'),
   };
 }));
@@ -199,8 +200,9 @@ app.get('/api/sports/:sport', needUser, wrap((req) => {
   const sport = requireSport(req.params.sport);
   const teams = all('SELECT * FROM im_teams WHERE sport = ? ORDER BY is_club DESC, name', sport);
   const games = all(
-    `SELECT g.*, h.name AS home_name, a.name AS away_name FROM games g
-       LEFT JOIN im_teams h ON h.id = g.home_team_id LEFT JOIN im_teams a ON a.id = g.away_team_id
+    `SELECT g.*, h.name AS home_name, a.name AS away_name, (COALESCE(h.is_club, 0) OR COALESCE(a.is_club, 0)) AS club_game,
+            (SELECT COUNT(*) FROM game_stats WHERE game_id = g.id) AS stat_lines
+       FROM games g LEFT JOIN im_teams h ON h.id = g.home_team_id LEFT JOIN im_teams a ON a.id = g.away_team_id
       WHERE g.sport = ? ORDER BY g.week, g.starts_at`,
     sport
   );
@@ -238,10 +240,12 @@ app.get('/api/athletes/:id', needUser, wrap((req) => {
        LEFT JOIN im_teams h ON h.id = g.home_team_id LEFT JOIN im_teams aw ON aw.id = g.away_team_id
       WHERE gs.athlete_id = ? ORDER BY g.starts_at`,
     a.id
-  ).map((r) => {
-    const stats = JSON.parse(r.stats);
-    return { ...r, stats, points: scoreLine(stats, scoring) };
-  });
+  );
+  const lines = Object.fromEntries(F.statLinesFor('gs.athlete_id = ?', a.id).map((l) => [l.game_id, l]));
+  for (const r of log) {
+    const line = lines[r.game_id];
+    Object.assign(r, { stats: line.stats, mult: line.mult, points: F.linePoints(line, scoring) });
+  }
   const owners = all(
     `SELECT l.id AS league_id, l.name AS league_name, lt.name AS team_name FROM roster r
        JOIN leagues l ON l.id = r.league_id JOIN league_teams lt ON lt.id = r.league_team_id
@@ -256,14 +260,28 @@ app.post('/api/teams', needAdmin, wrap((req) => {
   const name = cleanText(req.body.name);
   if (!name) throw httpError(400, 'Team name is required.');
   if (one('SELECT 1 FROM im_teams WHERE sport = ? AND name = ?', sport, name)) throw httpError(409, 'That team already exists in this sport.');
-  const r = run('INSERT INTO im_teams (sport, name, is_club) VALUES (?, ?, ?)', sport, name, req.body.is_club ? 1 : 0);
+  const r = run(
+    'INSERT INTO im_teams (sport, name, is_club, for_points, multiplier) VALUES (?, ?, ?, ?, ?)',
+    sport, name, req.body.is_club ? 1 : 0, req.body.for_points === false ? 0 : 1, multiplier(req.body.multiplier ?? 1)
+  );
   return { id: Number(r.lastInsertRowid) };
 }));
 
+const multiplier = (v) => Math.min(5, Math.max(0, Number(v) || 0));
+
 app.put('/api/teams/:id', needAdmin, wrap((req) => {
-  const name = cleanText(req.body.name);
+  const t = one('SELECT * FROM im_teams WHERE id = ?', req.params.id);
+  if (!t) throw httpError(404, 'Team not found.');
+  const name = req.body.name !== undefined ? cleanText(req.body.name) : t.name;
   if (!name) throw httpError(400, 'Team name is required.');
-  run('UPDATE im_teams SET name = ?, is_club = ? WHERE id = ?', name, req.body.is_club ? 1 : 0, req.params.id);
+  run(
+    'UPDATE im_teams SET name = ?, is_club = ?, for_points = ?, multiplier = ? WHERE id = ?',
+    name,
+    req.body.is_club !== undefined ? (req.body.is_club ? 1 : 0) : t.is_club,
+    req.body.for_points !== undefined ? (req.body.for_points ? 1 : 0) : t.for_points,
+    req.body.multiplier !== undefined ? multiplier(req.body.multiplier) : t.multiplier,
+    t.id
+  );
   return { ok: true };
 }));
 
@@ -375,18 +393,25 @@ app.get('/api/games/:id', needUser, wrap((req) => {
   );
   if (!game) throw httpError(404, 'Game not found.');
   const scoring = defaultScoring(game.sport);
-  const statRows = Object.fromEntries(
-    all('SELECT athlete_id, stats FROM game_stats WHERE game_id = ?', game.id).map((r) => [r.athlete_id, JSON.parse(r.stats)])
-  );
+  const lines = Object.fromEntries(F.statLinesFor('gs.game_id = ?', game.id).map((l) => [l.athlete_id, l]));
   // Box score: everyone on either roster, plus anyone else with a stat line in this game.
   const players = all(
     `SELECT a.id, a.name, a.position, a.im_team_id FROM athletes a
       WHERE a.sport = ? AND (a.im_team_id IN (?, ?) OR a.id IN (SELECT athlete_id FROM game_stats WHERE game_id = ?))
       ORDER BY a.name`,
     game.sport, game.home_team_id, game.away_team_id, game.id
-  ).map((p) => ({ ...p, stats: statRows[p.id] || null, points: statRows[p.id] ? scoreLine(statRows[p.id], scoring) : null }));
-  const teams = all('SELECT * FROM im_teams WHERE sport = ? ORDER BY name', game.sport);
-  return { game, sport: SPORTS[game.sport], players, teams };
+  ).map((p) => ({ ...p, stats: lines[p.id]?.stats || null, mult: lines[p.id]?.mult ?? null,
+    points: lines[p.id] ? F.linePoints(lines[p.id], scoring) : null }));
+  const teams = all('SELECT * FROM im_teams WHERE sport = ? ORDER BY is_club DESC, name', game.sport);
+  const side = (id) => teams.find((t) => t.id === id) || null;
+  game.home_team = side(game.home_team_id);
+  game.away_team = side(game.away_team_id);
+  // Admins can add anyone from the sport to the box score (subs, players on other Chi teams).
+  const shown = new Set(players.map((p) => p.id));
+  const pool = req.user.is_admin
+    ? all('SELECT id, name, position, im_team_id FROM athletes WHERE sport = ? AND active = 1 ORDER BY name', game.sport).filter((a) => !shown.has(a.id))
+    : [];
+  return { game, sport: SPORTS[game.sport], players, teams, pool };
 }));
 
 app.put('/api/games/:id', needAdmin, wrap((req) => {
@@ -452,6 +477,19 @@ app.post('/api/leagues', needAdmin, wrap((req) => {
 const clampWeeks = (v) => Math.min(30, Math.max(1, Math.round(Number(v)) || 1));
 const playoffTeams = (v) => ([0, 2, 4].includes(Number(v)) ? Number(v) : 4);
 
+// Lazy server-side work for a league: auto-pick for expired clocks, then let the bots act.
+function tick(leagueId) {
+  F.processExpiredPicks(leagueId);
+  F.runBots(leagueId);
+}
+
+// Admins can see which teams are bots; everyone else sees ordinary teams.
+function markBots(req, leagueId, teams) {
+  if (!req.user?.is_admin) return teams;
+  const bots = Object.fromEntries(F.botTeams(leagueId).map((b) => [b.id, b.bot]));
+  return teams.map((t) => ({ ...t, bot: bots[t.id] || null }));
+}
+
 function loadLeague(req) {
   const league = F.getLeague(req.params.id);
   if (!league) throw httpError(404, 'League not found.');
@@ -459,9 +497,10 @@ function loadLeague(req) {
 }
 
 app.get('/api/leagues/:id', needUser, wrap((req) => {
-  F.processExpiredPicks(Number(req.params.id));
+  tick(Number(req.params.id));
   const league = loadLeague(req);
   const view = F.leagueView(league);
+  view.teams = markBots(req, league.id, view.teams);
   const mine = view.teams.find((t) => t.user_id === req.user.id) || null;
   return {
     league,
@@ -585,6 +624,7 @@ app.post('/api/leagues/:id/draft/start', needUser, wrap((req) => {
   if (pool === 0) throw httpError(400, 'Add players to this sport before drafting.');
   run(`UPDATE leagues SET status = 'drafting', clock_started_at = ?, draft_paused = 0 WHERE id = ?`, Date.now(), league.id);
   F.log(league.id, 'The draft has started!');
+  F.runBots(league.id);
   return { ok: true };
 }));
 
@@ -605,9 +645,9 @@ app.post('/api/leagues/:id/draft/pause', needUser, wrap((req) => {
 }));
 
 app.get('/api/leagues/:id/draft', needUser, wrap((req) => {
-  F.processExpiredPicks(Number(req.params.id));
+  tick(Number(req.params.id));
   const league = loadLeague(req);
-  const order = F.draftOrder(league.id).map((t) => ({
+  const order = markBots(req, league.id, F.draftOrder(league.id)).map((t) => ({
     ...t, owner_name: one('SELECT display_name FROM users WHERE id = ?', t.user_id)?.display_name,
   }));
   const picks = all(
@@ -634,7 +674,7 @@ app.get('/api/leagues/:id/draft', needUser, wrap((req) => {
 app.post('/api/leagues/:id/draft/pick', needUser, wrap((req) => {
   const id = Number(req.params.id);
   F.processExpiredPicks(id);
-  return tx(() => {
+  const result = tx(() => {
     const league = F.getLeague(id);
     if (!league) throw httpError(404, 'League not found.');
     if (league.status !== 'drafting') throw httpError(400, 'The draft is not running.');
@@ -645,6 +685,63 @@ app.post('/api/leagues/:id/draft/pick', needUser, wrap((req) => {
       throw httpError(403, `It is ${state.onClock.name}'s pick, not yours.`);
     }
     return F.makePick(league, Number(req.body.athlete_id));
+  });
+  F.runBots(id);
+  return result;
+}));
+
+// ---------- Secret bots & commissioner roster edits ----------
+
+const BOT_OWNERS = ['Big Mike', 'Coach T', 'The Professor', 'Old Man Jenkins', 'Dr. Draft', 'Sully', 'Moose', 'Dutch'];
+const BOT_TEAMS = {
+  win: ['Dynasty', 'The Machine', 'Undefeated Inc.', 'Final Boss'],
+  lose: ['Tank Commanders', 'Participation Trophies', 'Hope for Next Year', 'The Benchwarmers'],
+};
+
+app.post('/api/leagues/:id/bots', needAdmin, wrap((req) => {
+  const league = loadLeague(req);
+  if (league.status !== 'setup') throw httpError(400, 'Bots can only join before the draft.');
+  const kind = req.body.kind === 'lose' ? 'lose' : 'win';
+  const owner = cleanText(req.body.owner, 60) || BOT_OWNERS[crypto.randomInt(BOT_OWNERS.length)];
+  const name = cleanText(req.body.name, 40) || BOT_TEAMS[kind][crypto.randomInt(BOT_TEAMS[kind].length)];
+  return tx(() => {
+    // A bot is a normal-looking member that nobody can log in as.
+    const u = run('INSERT INTO users (username, display_name, pass_hash, bot) VALUES (?, ?, ?, ?)',
+      `bot-${crypto.randomBytes(6).toString('hex')}`, owner, hashPassword(crypto.randomBytes(24).toString('hex')), kind);
+    const slot = one('SELECT COALESCE(MAX(draft_slot), 0) + 1 AS s FROM league_teams WHERE league_id = ?', league.id).s;
+    run('INSERT INTO league_teams (league_id, user_id, name, draft_slot) VALUES (?, ?, ?, ?)', league.id, Number(u.lastInsertRowid), name, slot);
+    F.log(league.id, `${owner} joined as ${name}`);
+    return { ok: true, name, owner };
+  });
+}));
+
+// The commissioner can put any player on any team, or take him off, outside the normal add/drop rules.
+app.post('/api/leagues/:id/admin/roster', needUser, wrap((req) => {
+  const league = loadLeague(req);
+  if (!isCommish(req.user, league)) throw httpError(403, 'Only the commissioner can edit rosters.');
+  if (!['active', 'complete'].includes(league.status)) throw httpError(400, 'Rosters can be edited after the draft.');
+  const team = one('SELECT * FROM league_teams WHERE id = ? AND league_id = ?', req.body.team_id, league.id);
+  if (!team) throw httpError(404, 'Team not found.');
+  const at = new Date().toISOString();
+  return tx(() => {
+    if (req.body.drop_id) {
+      const r = run('UPDATE roster SET dropped_at = ? WHERE league_team_id = ? AND athlete_id = ? AND dropped_at IS NULL', at, team.id, Number(req.body.drop_id));
+      if (!r.changes) throw httpError(400, 'That player is not on this team.');
+      F.log(league.id, `The commissioner removed ${one('SELECT name FROM athletes WHERE id = ?', req.body.drop_id).name} from ${team.name}`);
+    }
+    if (req.body.add_id) {
+      const a = one('SELECT * FROM athletes WHERE id = ? AND sport = ?', Number(req.body.add_id), league.sport);
+      if (!a) throw httpError(400, 'That player is not in this sport.');
+      const current = one(
+        `SELECT r.id, lt.name FROM roster r JOIN league_teams lt ON lt.id = r.league_team_id
+          WHERE r.league_id = ? AND r.athlete_id = ? AND r.dropped_at IS NULL`, league.id, a.id);
+      // Backdate when asked, so the player's past games count for his new team (and not his old one).
+      const from = req.body.count_past ? F.EPOCH : at;
+      if (current) run(`UPDATE roster SET dropped_at = ${req.body.count_past ? 'acquired_at' : '?'} WHERE id = ?`, ...(req.body.count_past ? [] : [at]), current.id);
+      run('INSERT INTO roster (league_id, league_team_id, athlete_id, acquired_at, how) VALUES (?, ?, ?, ?, ?)', league.id, team.id, a.id, from, 'commissioner');
+      F.log(league.id, `The commissioner moved ${a.name} to ${team.name}${current ? ` from ${current.name}` : ''}`);
+    }
+    return { ok: true };
   });
 }));
 

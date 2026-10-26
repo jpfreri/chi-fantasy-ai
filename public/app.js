@@ -42,11 +42,14 @@ function toast(msg, isError = false) {
   toast.t = setTimeout(() => (el.hidden = true), 3200);
 }
 
+// Games are on campus in Oklahoma, so times always show in Central time wherever you open the app.
+const TZ = 'America/Chicago';
+
 function fmtDate(iso, withTime = true) {
   if (!iso) return 'TBD';
   const d = new Date(iso);
-  const day = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-  return withTime ? `${day} · ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : day;
+  const day = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: TZ });
+  return withTime ? `${day} · ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZone: TZ })}` : day;
 }
 
 function toLocalInput(iso) {
@@ -129,7 +132,7 @@ const routes = [
   [/^#\/player\/(\d+)$/, pagePlayer],
   [/^#\/league\/(\d+)\/draft$/, pageDraft],
   [/^#\/league\/(\d+)(?:\/(\w+))?(?:\/(\d+))?$/, pageLeague],
-  [/^#\/admin$/, pageAdmin],
+  [/^#\/admin(?:\/(\w+))?(?:\/(\w+))?$/, pageAdmin],
   [/^#\/account$/, pageAccount],
   [/^#?\/?$/, pageHome],
 ];
@@ -272,8 +275,9 @@ function gameRow(g) {
   return `
     <a class="game-row" href="#/game/${g.id}">
       <div class="teams">
+        ${!g.home_name && !g.away_name && g.notes ? `<div><span><strong>${esc(g.notes)}</strong> <span class="muted small">· teams TBD</span></span></div>` : `
         <div class="${awayWin ? 'win' : ''}"><span>${esc(g.away_name || 'TBD')}</span><span>${showScore ? esc(g.away_score) : ''}</span></div>
-        <div class="${homeWin ? 'win' : ''}"><span>${esc(g.home_name || 'TBD')}</span><span>${showScore ? esc(g.home_score) : ''}</span></div>
+        <div class="${homeWin ? 'win' : ''}"><span>${esc(g.home_name || 'TBD')}</span><span>${showScore ? esc(g.home_score) : ''}</span></div>`}
       </div>
       <div class="meta">
         ${g.status === 'scheduled' ? fmtDate(g.starts_at) : statusBadge(g.status)}
@@ -339,17 +343,23 @@ async function pageSport(key, tab = 'schedule') {
   const weeks = [...new Set(d.games.map((g) => g.week))];
 
   const body = {
-    schedule: () => `
+    schedule: () => {
+      const shown = (w) => d.games.filter((g) => g.week === w && (allGames || g.club_game || (!g.home_team_id && !g.away_team_id)));
+      return `
       ${isAdmin ? `<details class="card"><summary><strong>Add a game</strong></summary>${gameForm(d.teams, {})}</details>` : ''}
+      <div class="row" style="margin-bottom:12px"><span class="muted small">${allGames ? 'Showing every intramural game.' : 'Showing Chi games and playoff slots.'}</span>
+        <a href="#" class="small" data-act="toggleAll">${allGames ? 'Only Chi games' : 'Show all games'}</a></div>
       ${weeks.length ? weeks.map((w) => `
-        <div class="card"><h2>Week ${esc(w)}</h2>${d.games.filter((g) => g.week === w).map(gameRow).join('')}</div>`).join('')
-        : '<div class="card empty">No games yet.</div>'}`,
+        <div class="card"><h2>Week ${esc(w)} <span class="muted small">· ${fmtDate(d.games.find((g) => g.week === w)?.starts_at, false)}</span></h2>
+          ${shown(w).map(gameRow).join('') || '<p class="empty">No Chi games this week.</p>'}</div>`).join('')
+        : '<div class="card empty">No games yet.</div>'}`;
+    },
 
     standings: () => `
       <div class="card table-wrap"><table>
         <thead><tr><th>Team</th><th class="num">W</th><th class="num">L</th><th class="num">T</th><th class="num">PF</th><th class="num">PA</th></tr></thead>
         <tbody>${[...d.teams].sort((a, b) => b.record.w - a.record.w || a.record.l - b.record.l).map((t) => `
-          <tr><td>${esc(t.name)} ${t.is_club ? '<span class="badge club">ΧΛΦ</span>' : ''}</td>
+          <tr><td>${esc(t.name)} ${teamBadges(t)}</td>
           <td class="num">${t.record.w}</td><td class="num">${t.record.l}</td><td class="num">${t.record.t}</td>
           <td class="num">${t.record.pf}</td><td class="num">${t.record.pa}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">No teams yet.</td></tr>'}
         </tbody></table></div>`,
@@ -446,6 +456,16 @@ async function pageSport(key, tab = 'schedule') {
     await PUT(`/api/athletes/${el.dataset.id}`, { active: true });
     pageSport(key, 'manage');
   };
+  actions.toggleAll = () => {
+    allGames = !allGames;
+    pageSport(key, 'schedule');
+  };
+  document.querySelectorAll('[data-team-flag]').forEach((box) => box.addEventListener('change', async () => {
+    try { await PUT(`/api/teams/${box.dataset.teamFlag}`, { for_points: box.checked }); toast('Saved'); } catch (err) { toast(err.message, true); }
+  }));
+  document.querySelectorAll('[data-team-mult]').forEach((input) => input.addEventListener('change', async () => {
+    try { await PUT(`/api/teams/${input.dataset.teamMult}`, { multiplier: input.value }); toast('Saved. Fantasy points recalculate everywhere.'); } catch (err) { toast(err.message, true); }
+  }));
   // Inline edits on the manage table save on change.
   document.querySelectorAll('[data-edit-athlete]').forEach((input) => {
     input.addEventListener('change', async () => {
@@ -457,6 +477,16 @@ async function pageSport(key, tab = 'schedule') {
       }
     });
   });
+}
+
+// Remembered while you move around, so the schedule keeps your choice.
+let allGames = false;
+
+function teamBadges(t) {
+  if (!t) return '';
+  return `${t.is_club ? '<span class="badge club">ΧΛΦ</span>' : ''}
+    ${t.is_club && !t.for_points ? '<span class="badge" title="Does not count for intramural points">no IM pts</span>' : ''}
+    ${t.is_club && Number(t.multiplier) !== 1 ? `<span class="badge" title="Fantasy points are multiplied by this">×${Number(t.multiplier)}</span>` : ''}`;
 }
 
 function gameForm(teams, g) {
@@ -507,7 +537,10 @@ function manageSport(d) {
     </form>
     <div class="card table-wrap">
       <h2>Teams</h2>
-      <table><tbody>${d.teams.map((t) => `<tr><td>${esc(t.name)} ${t.is_club ? '<span class="badge club">ΧΛΦ</span>' : ''}</td>
+      <p class="muted small">Chi teams can earn intramural points or not, and each team has a fantasy multiplier: its players' fantasy points are multiplied by it, so A-team stats can be worth more than B-team stats.</p>
+      <table><thead><tr><th>Team</th><th>IM points</th><th>Fantasy ×</th><th></th></tr></thead><tbody>${d.teams.map((t) => `<tr><td>${esc(t.name)} ${teamBadges(t)}</td>
+        <td><label style="display:flex;gap:6px;align-items:center;color:var(--text);margin:0"><input type="checkbox" data-team-flag="${t.id}" ${t.for_points ? 'checked' : ''}> Counts</label></td>
+        <td><input class="stat" type="number" step="0.05" min="0" max="5" value="${esc(t.multiplier)}" data-team-mult="${t.id}"></td>
         <td class="num"><button class="small secondary" data-act="toggleClub" data-id="${t.id}">${t.is_club ? 'Unmark club' : 'Mark as club'}</button>
         <button class="small secondary" data-act="renameTeam" data-id="${t.id}">Rename</button>
         <button class="small danger" data-act="delTeam" data-id="${t.id}">Delete</button></td></tr>`).join('') || '<tr><td class="empty">No teams yet.</td></tr>'}</tbody></table>
@@ -528,8 +561,9 @@ function manageSport(d) {
 
 // ---------- Game ----------
 
-async function pageGame(id, mode) {
+async function pageGame(id, mode, extra = []) {
   const d = await GET(`/api/games/${id}`);
+  for (const a of d.pool.filter((p) => extra.includes(p.id))) d.players.push({ ...a, im_team_id: -1, stats: null, points: null });
   const { game: g, sport: s } = d;
   const isAdmin = S.me.is_admin;
   const editing = mode === 'edit' && isAdmin;
@@ -537,9 +571,11 @@ async function pageGame(id, mode) {
   const side = (teamId) => d.players.filter((p) => p.im_team_id === teamId);
   const others = d.players.filter((p) => p.im_team_id !== g.home_team_id && p.im_team_id !== g.away_team_id);
 
-  const boxTable = (title, players) => {
+  const boxTable = (title, players, team) => {
     const cols = s.stats.filter(([k]) => editing || players.some((p) => p.stats?.[k]));
-    return `<div class="card table-wrap"><h2>${esc(title)}</h2>${players.length ? `<table>
+    return `<div class="card table-wrap"><h2>${esc(title)} ${teamBadges(team)}</h2>
+      ${team?.is_club && Number(team.multiplier) !== 1 && !editing ? `<p class="muted small">Fantasy points from this team are multiplied by ${Number(team.multiplier)}.</p>` : ''}
+      ${players.length ? `<table>
       <thead><tr><th>Player</th>${cols.map(([k, label]) => `<th class="num" title="${esc(label)}">${esc(label)}</th>`).join('')}${editing ? '' : '<th class="num">FPTS</th>'}</tr></thead>
       <tbody>${players.map((p) => `<tr>
         <td><a href="#/player/${p.id}">${esc(p.name)}</a> <span class="muted small">${esc(p.position || '')}</span></td>
@@ -568,9 +604,12 @@ async function pageGame(id, mode) {
     ${editing ? `<details class="card" open><summary><strong>Game details & score</strong></summary>${gameForm(d.teams, g)}
       <p></p><button class="danger" data-act="delGame">Delete game</button></details>
       <div class="card row"><span class="grow">Type each player's numbers below, then save. Blank means zero. Set the game to <strong>live</strong> or <strong>final</strong> above for points to count.</span><button class="gold" data-act="saveStats">Save stats</button></div>` : ''}
-    ${boxTable(g.away_name || 'Away', side(g.away_team_id))}
-    ${boxTable(g.home_name || 'Home', side(g.home_team_id))}
+    ${boxTable(g.away_name || 'Away', side(g.away_team_id), g.away_team)}
+    ${boxTable(g.home_name || 'Home', side(g.home_team_id), g.home_team)}
     ${others.length ? boxTable('Others', others) : ''}
+    ${editing && d.pool.length ? `<div class="card row"><span>Someone else played (a sub, or a member from another Chi team)?</span>
+      <select id="sub"><option value="">Add a player to the box score…</option>${options(d.pool.filter((p) => !extra.includes(p.id)), '')}</select>
+      <button class="secondary" data-act="addSub">Add</button></div>` : ''}
     ${editing ? '<div class="row end"><button class="gold" data-act="saveStats">Save stats</button></div>' : ''}`);
 
   forms.game = async (f) => {
@@ -585,6 +624,12 @@ async function pageGame(id, mode) {
     });
     await PUT(`/api/games/${g.id}/stats`, { rows: Object.entries(rows).map(([athlete_id, stats]) => ({ athlete_id: Number(athlete_id), stats })) });
     toast('Stats saved');
+  };
+  actions.addSub = async () => {
+    const pick = Number(document.getElementById('sub').value);
+    if (!pick) return;
+    await actions.saveStats();
+    pageGame(id, 'edit', [...extra, pick]);
   };
   actions.delGame = async () => {
     if (!confirm('Delete this game and its stats?')) return;
@@ -644,7 +689,7 @@ async function pageLeague(id, tab, weekParam) {
           <h2>Teams & draft order (${d.standings.length})</h2>
           ${d.standings.length ? `<table><tbody>${[...d.standings].sort((a, b) => a.draft_slot - b.draft_slot).map((t, i, arr) => `
             <tr class="${t.user_id === S.me.id ? 'me' : ''}"><td class="num" style="width:30px">${i + 1}</td>
-            <td><strong>${esc(t.name)}</strong><div class="muted small">${esc(t.owner_name)}</div></td>
+            <td><strong>${esc(t.name)}</strong> ${BOT_BADGE(t)}<div class="muted small">${esc(t.owner_name)}</div></td>
             <td class="num">${d.isCommish && L.status === 'setup' ? `
               <button class="small secondary" data-act="move" data-i="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''}>↑</button>
               <button class="small secondary" data-act="move" data-i="${i}" data-dir="1" ${i === arr.length - 1 ? 'disabled' : ''}>↓</button>` : ''}
@@ -678,7 +723,7 @@ async function pageLeague(id, tab, weekParam) {
       return `<div class="card table-wrap"><table>
         <thead><tr><th>#</th><th>Team</th><th class="num">W-L-T</th><th class="num">PF</th><th class="num">PA</th><th class="num">Season pts</th></tr></thead>
         <tbody>${d.standings.map((t) => `<tr class="${t.user_id === S.me.id ? 'me' : ''} ${t.rank === cut && cut < d.standings.length ? 'cutline' : ''}">
-          <td>${t.rank}</td><td><strong>${esc(t.name)}</strong><div class="muted small">${esc(t.owner_name)}</div></td>
+          <td>${t.rank}</td><td><strong>${esc(t.name)}</strong> ${BOT_BADGE(t)}<div class="muted small">${esc(t.owner_name)}</div></td>
           <td class="num"><strong>${t.w}-${t.l}${t.t ? `-${t.t}` : ''}</strong></td>
           <td class="num">${t.pf.toFixed(1)}</td><td class="num">${t.pa.toFixed(1)}</td>
           <td class="num">${pts(t.points)}</td></tr>`).join('')}</tbody></table>
@@ -861,7 +906,7 @@ async function pageLeague(id, tab, weekParam) {
       <div class="row"><h3 style="margin:0">${esc(t.name)}</h3><span class="grow"></span>${pts(t.points)}</div>
       <div class="muted small" style="margin-bottom:8px">${esc(t.owner_name)} · ${L.status === 'setup' || L.status === 'drafting' ? '' : `${t.w}-${t.l}${t.t ? `-${t.t}` : ''} · Rank ${t.rank}`}</div>
       <table><tbody>${t.players.map((p) => `<tr><td><a href="#/player/${p.athlete_id}">${esc(p.name)}</a>
-        <div class="muted small">${esc(p.position || '')} ${p.team_name ? `· ${esc(p.team_name)}` : ''}</div></td>
+        <div class="muted small">${[p.position, p.team_name].filter(Boolean).map(esc).join(' · ')}</div></td>
         <td class="num">${pts(p.points)}</td>
         ${canDrop ? `<td class="num"><button class="small danger" data-act="drop" data-id="${p.athlete_id}" data-name="${esc(p.name)}">Drop</button></td>` : ''}</tr>`).join('') ||
         '<tr><td class="empty">No players yet.</td></tr>'}</tbody></table></div>`;
@@ -1039,29 +1084,136 @@ async function pageDraft(id) {
 
 // ---------- Admin ----------
 
-async function pageAdmin() {
+const BOT_BADGE = (t) => (t?.bot ? `<span class="badge bot" title="Only admins see this">🤖 ${t.bot === 'win' ? 'win bot' : 'lose bot'}</span>` : '');
+
+async function pageAdmin(tab = 'members', arg) {
   if (!S.me.is_admin) return render('<div class="card">Only admins can see this page.</div>');
+  const sportKeys = Object.keys(S.sports);
+  const tabs = [['members', 'Members'], ['rosters', 'Chi rosters'], ['stats', 'Games & stats'], ['leagues', 'Fantasy rosters & bots']];
+  const head = `<div class="page-head"><h1>Admin</h1></div>
+    <div class="tabs">${tabs.map(([k, l]) => `<a href="#/admin/${k}" class="${k === tab ? 'on' : ''}">${l}</a>`).join('')}</div>`;
+  const sportPills = (base, cur) => `<div class="weekpills">${sportKeys.map((k) =>
+    `<a href="#/admin/${base}/${k}" class="${k === cur ? 'on' : ''}">${sportName(k)}</a>`).join('')}</div>`;
+
+  if (tab === 'rosters') {
+    const sport = S.sports[arg] ? arg : sportKeys[0];
+    const d = await GET(`/api/sports/${sport}`);
+    const club = d.teams.filter((t) => t.is_club);
+    const count = (id) => d.athletes.filter((a) => a.active && a.im_team_id === id).length;
+    render(`${head}${sportPills('rosters', sport)}
+      <div class="card">
+        <h2>${sportName(sport)} teams</h2>
+        <div class="row">${club.map((t) => `<span>${esc(t.name)} ${teamBadges(t)} <span class="muted small">${count(t.id)} players</span></span>`).join('<span class="muted">·</span>')}</div>
+        <p class="muted small">Pick each member's team below; it saves right away. Team settings (intramural points, fantasy multiplier) are on the sport's <a href="#/sport/${sport}/manage">Manage</a> tab.</p>
+      </div>
+      <div class="card table-wrap"><table><thead><tr><th>Member</th><th>Team</th><th>Position</th><th class="num">Fantasy pts</th></tr></thead><tbody>
+      ${d.athletes.filter((a) => a.active).map((a) => `<tr><td><a href="#/player/${a.id}">${esc(a.name)}</a></td>
+        <td><select data-edit-athlete="${a.id}" name="im_team_id"><option value="">No team</option>${options(d.teams, a.im_team_id)}</select></td>
+        <td><select data-edit-athlete="${a.id}" name="position"><option value="">—</option>${d.sport.positions.map((p) => `<option ${p === a.position ? 'selected' : ''}>${p}</option>`).join('')}</select></td>
+        <td class="num">${pts(a.points)}</td></tr>`).join('')}</tbody></table></div>`);
+    document.querySelectorAll('[data-edit-athlete]').forEach((input) => input.addEventListener('change', async () => {
+      try { await PUT(`/api/athletes/${input.dataset.editAthlete}`, { [input.name]: input.value }); toast('Saved'); } catch (err) { toast(err.message, true); }
+    }));
+    return;
+  }
+
+  if (tab === 'stats') {
+    const sport = S.sports[arg] ? arg : sportKeys[0];
+    const d = await GET(`/api/sports/${sport}`);
+    const weeks = [...new Set(d.games.map((g) => g.week))];
+    const listed = d.games.filter((g) => allGames || g.club_game || (!g.home_team_id && !g.away_team_id));
+    const missing = listed.filter((g) => g.club_game && g.status === 'final' && !g.stat_lines).length;
+    render(`${head}${sportPills('stats', sport)}
+      <div class="card row"><span class="grow">${listed.length} games${missing ? ` · <strong>${missing} finished Chi game${missing === 1 ? '' : 's'} with no stats yet</strong>` : ''}.
+        Open a game to set its teams, score and status and type the box score.</span>
+        <a href="#" class="small" data-act="toggleAll">${allGames ? 'Only Chi games' : 'Show all games'}</a>
+        <a class="btn secondary" href="#/sport/${sport}/schedule">Add a game</a></div>
+      ${weeks.map((w) => `<div class="card table-wrap"><h2>Week ${w}</h2><table><tbody>
+        ${listed.filter((g) => g.week === w).map((g) => `<tr>
+          <td class="small muted" style="white-space:nowrap">${fmtDate(g.starts_at)}</td>
+          <td>${g.home_name || g.away_name ? `${esc(g.home_name || 'TBD')} <span class="muted">vs</span> ${esc(g.away_name || 'TBD')}` : `<strong>${esc(g.notes || 'TBD')}</strong> <span class="muted small">teams TBD</span>`}</td>
+          <td>${statusBadge(g.status)}</td>
+          <td class="num small">${g.home_score != null ? `${g.away_score}-${g.home_score}` : '<span class="muted">no score</span>'}</td>
+          <td class="num small">${g.stat_lines ? `${g.stat_lines} stat lines` : '<span class="muted">no stats</span>'}</td>
+          <td class="num"><a class="btn small" href="#/game/${g.id}/edit">Edit</a></td></tr>`).join('') || '<tr><td class="empty">No Chi games this week.</td></tr>'}
+        </tbody></table></div>`).join('') || '<div class="card empty">No games scheduled for this sport yet.</div>'}`);
+    actions.toggleAll = () => { allGames = !allGames; pageAdmin('stats', sport); };
+    return;
+  }
+
+  if (tab === 'leagues') {
+    const home = await GET('/api/home');
+    const id = Number(arg) || home.leagues[0]?.id;
+    if (!id) return render(`${head}<div class="card empty">No fantasy leagues yet. Create one from a sport's Fantasy leagues tab.</div>`);
+    const d = await GET(`/api/leagues/${id}`);
+    const L = d.league;
+    const pool = (await GET(`/api/sports/${L.sport}`)).athletes.filter((a) => a.active);
+    const owner = {};
+    d.standings.forEach((t) => t.players.forEach((p) => (owner[p.athlete_id] = t.name)));
+    const editable = ['active', 'complete'].includes(L.status);
+    render(`${head}
+      <div class="weekpills">${home.leagues.map((l) => `<a href="#/admin/leagues/${l.id}" class="${l.id === id ? 'on' : ''}">${S.sports[l.sport]?.icon || ''} ${esc(l.name)}</a>`).join('')}</div>
+      <div class="card">
+        <div class="row"><h2 style="margin:0">${esc(L.name)}</h2>${statusBadge(L.status)}<span class="grow"></span><a href="#/league/${L.id}">Open league</a></div>
+        <p class="muted small">Bot teams look like normal members to everyone else. The win bot drafts and picks up the best players; the lose bot always takes the worst. During the season each bot makes at most one roster move every 6 hours.</p>
+        ${L.status === 'setup' ? `<div class="row"><button class="gold" data-act="addBot" data-kind="win">Add a bot that tries to win</button>
+          <button class="secondary" data-act="addBot" data-kind="lose">Add a bot that tries to lose</button></div>`
+          : '<p class="muted small">Bots can join while the league is in draft setup.</p>'}
+      </div>
+      ${editable ? `<form class="card" data-form="adminRoster"><h2>Move a player</h2>
+        <div class="form-grid">
+          <div class="field"><label>Player</label><select name="add_id" required><option value="">Pick…</option>
+            ${pool.map((a) => `<option value="${a.id}">${esc(a.name)}${owner[a.id] ? ` (on ${esc(owner[a.id])})` : ''}</option>`).join('')}</select></div>
+          <div class="field"><label>To team</label><select name="team_id" required>${options(d.standings, '')}</select></div>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center;color:var(--text)"><input type="checkbox" name="count_past" value="1"> Count his past games for the new team (fixes a mistake instead of a normal pickup)</label>
+        <p></p><button>Move player</button></form>` : ''}
+      <div class="grid cards">${d.standings.map((t) => `<div class="card">
+        <div class="row"><h3 style="margin:0">${esc(t.name)}</h3>${BOT_BADGE(t)}<span class="grow"></span>${editable ? pts(t.points) : ''}</div>
+        <div class="muted small" style="margin-bottom:8px">${esc(t.owner_name)}</div>
+        <table><tbody>${t.players.map((p) => `<tr><td>${esc(p.name)} <span class="muted small">${esc(p.team_name || '')}</span></td>
+          <td class="num">${pts(p.points)}</td>
+          ${editable ? `<td class="num"><button class="small danger" data-act="adminDrop" data-team="${t.id}" data-id="${p.athlete_id}" data-name="${esc(p.name)}">Remove</button></td>` : ''}</tr>`).join('') ||
+          `<tr><td class="empty">${L.status === 'setup' ? 'Drafts when the league does.' : 'No players.'}</td></tr>`}</tbody></table></div>`).join('')}</div>`);
+    actions.addBot = async (el) => {
+      const r = await POST(`/api/leagues/${id}/bots`, { kind: el.dataset.kind });
+      toast(`${r.owner} joined as ${r.name}`);
+      pageAdmin('leagues', id);
+    };
+    actions.adminDrop = async (el) => {
+      if (!confirm(`Remove ${el.dataset.name} from this team?`)) return;
+      await POST(`/api/leagues/${id}/admin/roster`, { team_id: el.dataset.team, drop_id: el.dataset.id });
+      pageAdmin('leagues', id);
+    };
+    forms.adminRoster = async (f) => {
+      await POST(`/api/leagues/${id}/admin/roster`, { ...f, count_past: !!f.count_past });
+      toast('Player moved');
+      pageAdmin('leagues', id);
+    };
+    return;
+  }
+
   const users = await GET('/api/users');
-  render(`
-    <div class="page-head"><h1>Admin</h1></div>
+  const people = users.filter((u) => !u.bot);
+  render(`${head}
     <div class="card">
-      <h2>Getting a season going</h2>
+      <h2>Running a season</h2>
       <ol>
-        <li>Open a sport (top menu) → <strong>Manage</strong>, add the intramural teams and paste in the players.</li>
-        <li><strong>Schedule</strong> tab → add the games.</li>
-        <li><strong>Fantasy leagues</strong> tab → create the league and share the link so brothers can join.</li>
-        <li>On the league page, set the draft order and hit <strong>Start the draft</strong>.</li>
-        <li>After each game, open it → <strong>Enter score & stats</strong>, mark it final, and the standings update.</li>
+        <li><strong>Chi rosters:</strong> put each member on his team for every sport.</li>
+        <li><strong>Games & stats:</strong> after each game, open it, set the score and status to final, and type the box score.</li>
+        <li><strong>Fantasy leagues:</strong> create one from a sport's Fantasy leagues tab, share the link, add bots if you want, and start the draft from the league page.</li>
+        <li><strong>Fantasy rosters & bots:</strong> fix any fantasy roster by hand.</li>
       </ol>
     </div>
     <div class="card table-wrap">
-      <h2>Members (${users.length})</h2>
+      <h2>Members (${people.length})</h2>
       <table><thead><tr><th>Name</th><th>Username</th><th>Joined</th><th>Admin</th><th></th></tr></thead><tbody>
-      ${users.map((u) => `<tr><td>${esc(u.display_name)}</td><td class="muted">${esc(u.username)}</td><td class="muted small">${fmtDate(u.created_at, false)}</td>
+      ${people.map((u) => `<tr><td>${esc(u.display_name)}</td><td class="muted">${esc(u.username)}</td><td class="muted small">${fmtDate(u.created_at, false)}</td>
         <td>${u.is_admin ? '<span class="badge club">admin</span>' : ''}</td>
         <td class="num">${u.id !== S.me.id ? `<button class="small secondary" data-act="toggleAdmin" data-id="${u.id}" data-admin="${u.is_admin}">${u.is_admin ? 'Remove admin' : 'Make admin'}</button>` : ''}
         <button class="small secondary" data-act="resetPw" data-id="${u.id}" data-name="${esc(u.display_name)}">Reset password</button></td></tr>`).join('')}
       </tbody></table>
+      ${users.length > people.length ? `<p class="muted small">${users.length - people.length} bot account(s) are hidden from this list. They are managed under Fantasy rosters & bots.</p>` : ''}
     </div>`);
   actions.toggleAdmin = async (el) => {
     await PUT(`/api/users/${el.dataset.id}`, { is_admin: el.dataset.admin !== '1' });
