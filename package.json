@@ -7,6 +7,8 @@
     "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js",
     "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch src/server.js",
     "seed": "node --disable-warning=ExperimentalWarning scripts/seed.js",
+    "demo": "node --disable-warning=ExperimentalWarning scripts/seed.js --demo && node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js --demo",
+    "demo:start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.js --demo",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
   },
   "dependencies": {

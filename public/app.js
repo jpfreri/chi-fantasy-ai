@@ -681,6 +681,7 @@ async function pageGame(id, mode, extra = []) {
     </div>
     ${editing ? `<details class="card" open><summary><strong>Game details & score</strong></summary>${gameForm(d.teams, g)}
       <p></p><button class="danger" data-act="delGame">Delete game</button></details>
+      ${importCard(g.sport, new Date(g.starts_at).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }), true)}
       <div class="card row"><span class="grow">Type each player's numbers below, then save. Blank means zero. Set the game to <strong>live</strong> or <strong>final</strong> above for points to count.</span><button class="gold" data-act="saveStats">Save stats</button></div>` : ''}
     ${boxTable(g.away_name || 'Away', side(g.away_team_id), g.away_team)}
     ${boxTable(g.home_name || 'Home', side(g.home_team_id), g.home_team)}
@@ -709,10 +710,61 @@ async function pageGame(id, mode, extra = []) {
     await actions.saveStats();
     pageGame(id, 'edit', [...extra, pick]);
   };
+  wireImport(g.sport, () => pageGame(id, 'edit'));
   actions.delGame = async () => {
     if (!confirm('Delete this game and its stats?')) return;
     await DEL(`/api/games/${g.id}`);
     location.hash = `#/sport/${g.sport}`;
+  };
+}
+
+// ---------- Stat sheet upload ----------
+
+// Upload a game night from the club's stat sheet (CSV: File > Download > CSV in Google Sheets or Excel).
+// Sections ("A-Team", "B-Team", "C-Team") go to that Chi team's game on the sheet's date, or the date picked here.
+function importCard(sport, date = '', compact = false) {
+  return `<details class="card" ${compact ? '' : 'open'}><summary><strong>📄 Upload a game night from your stat sheet</strong></summary>
+    <p class="muted small">Export the sheet as CSV and pick it below. Each team section (A-Team, B-Team, C-Team) goes to that Chi team's game that day.
+      Players can be first names or nicknames (Q, Jerry, Santos). You'll see a preview before anything is saved.</p>
+    <div class="form-grid">
+      <div class="field"><label>Stat sheet (.csv)</label><input type="file" id="imp-file" accept=".csv,text/csv,.txt"></div>
+      <div class="field"><label>Game night date (if the sheet has none)</label><input type="date" id="imp-date" value="${esc(date)}"></div>
+    </div>
+    <div class="field"><label>…or paste the sheet</label><textarea id="imp-text" placeholder="A-Team&#10;Player,Serves Made,Serves Missed,Aces,…&#10;Luke,5,0,1,…"></textarea></div>
+    <label class="check" style="border:0"><input type="checkbox" id="imp-scores" checked> Mark the games final, and use the result on the sheet (like "W 2-1") as the score</label>
+    <div class="row" style="margin-top:8px"><button class="secondary" data-act="impPreview">Preview</button><span class="grow"></span><span id="imp-status" class="muted small"></span></div>
+    <div id="imp-out"></div></details>`;
+}
+
+function wireImport(sport, after) {
+  const body = async () => {
+    const f = document.getElementById('imp-file').files[0];
+    const text = f ? await f.text() : document.getElementById('imp-text').value;
+    if (!text.trim()) throw new Error('Pick a CSV file or paste the sheet first.');
+    return { text, date: document.getElementById('imp-date').value, set_scores: document.getElementById('imp-scores').checked };
+  };
+  const label = (k) => S.sports[sport].stats.find(([x]) => x === k)?.[1] || k;
+  actions.impPreview = async () => {
+    const r = await POST(`/api/sports/${sport}/import`, await body());
+    const ok = r.sections.filter((x) => x.game);
+    document.getElementById('imp-out').innerHTML = `
+      ${r.problems.map((p) => `<p class="bad small">⚠ ${esc(p)}</p>`).join('')}
+      ${r.sections.map((x) => `<div class="card" style="margin:10px 0">
+        <div class="row"><strong>${x.letter ? `Chi ${esc(x.letter)}` : 'Sheet'}</strong>
+          <span class="muted small">${x.game ? `${esc(x.game.away_name)} @ ${esc(x.game.home_name)} · ${fmtDate(x.game.starts_at)}` : 'no matching game'}</span>
+          <span class="grow"></span>${x.result ? `<span class="badge final">${esc(x.result.outcome)} ${x.result.chi}-${x.result.opp}</span>` : ''}</div>
+        <div class="table-wrap"><table><thead><tr><th>Sheet</th><th>Player</th><th>Stats</th></tr></thead><tbody>
+          ${x.rows.map((p) => `<tr><td class="muted">${esc(p.sheet_name)}</td><td>${esc(p.name)}</td>
+            <td class="small">${Object.entries(p.stats).map(([k, v]) => `${esc(label(k))} ${v}`).join(' · ') || '<span class="muted">no stats (removes his line)</span>'}</td></tr>`).join('')}
+          ${x.unmatched.map((u) => `<tr><td class="bad">${esc(u.sheet_name)}</td><td colspan="2" class="bad small">${esc(u.reason)}</td></tr>`).join('')}
+        </tbody></table></div></div>`).join('')}
+      ${ok.length ? `<div class="row"><span class="grow small muted">${ok.length} game${ok.length === 1 ? '' : 's'}, ${ok.reduce((t, x) => t + x.rows.length, 0)} players ready.</span>
+        <button class="gold" data-act="impSave">Save box scores</button></div>` : ''}`;
+  };
+  actions.impSave = async () => {
+    const r = await POST(`/api/sports/${sport}/import`, { ...(await body()), save: true });
+    toast(`Saved ${r.saved.lines} stat lines in ${r.saved.games} game${r.saved.games === 1 ? '' : 's'}. Fantasy points are updated.`);
+    after();
   };
 }
 
@@ -1441,6 +1493,7 @@ async function pageAdmin(tab = 'members', arg) {
         Open a game to set its teams, score and status and type the box score.</span>
         <a href="#" class="small" data-act="toggleAll">${allGames ? 'Only Chi games' : 'Show all games'}</a>
         <a class="btn secondary" href="#/sport/${sport}/schedule">Add a game</a></div>
+      ${importCard(sport)}
       ${weeks.map((w) => `<div class="card table-wrap"><h2>Week ${w}</h2><table><tbody>
         ${listed.filter((g) => g.week === w).map((g) => `<tr>
           <td class="small muted" style="white-space:nowrap">${fmtDate(g.starts_at)}</td>
@@ -1451,6 +1504,7 @@ async function pageAdmin(tab = 'members', arg) {
           <td class="num"><a class="btn small" href="#/game/${g.id}/edit">Edit</a></td></tr>`).join('') || '<tr><td class="empty">No Chi games this week.</td></tr>'}
         </tbody></table></div>`).join('') || '<div class="card empty">No games scheduled for this sport yet.</div>'}`);
     actions.toggleAll = () => { allGames = !allGames; pageAdmin('stats', sport); };
+    wireImport(sport, () => pageAdmin('stats', sport));
     return;
   }
 
@@ -1545,6 +1599,10 @@ async function pageAdmin(tab = 'members', arg) {
 (async function boot() {
   S.meta = await GET('/api/meta');
   S.sports = Object.fromEntries(S.meta.sports.map((s) => [s.key, s]));
+  if (S.meta.demo) {
+    document.querySelector('.brand').insertAdjacentHTML('beforeend', '<span class="badge demo" title="Demo data: made-up games and stats, separate from the real leagues">Demo</span>');
+    document.title = 'ΧΛΦ Fantasy · Demo';
+  }
   await refreshMe();
   // A failed Google sign-in comes back as ?auth_error=...; show it once and tidy the URL.
   const authError = new URLSearchParams(location.search).get('auth_error');

@@ -6,15 +6,22 @@
 // The totals add up exactly; the game-by-game split is made up. Only the "Softball 26" and
 // "Football 26" sheets are used: volleyball, basketball and soccer have not been played yet.
 // Usage: npm run seed   (wipes the database first)
+//
+// Demo mode (npm run demo, or this script with --demo) builds data/demo.db instead and never touches
+// data/fantasy.db. Every league is drafted and playing: volleyball uses the mock stat sheet in
+// scripts/demo/mock-volleyball.csv, and basketball and soccer get made-up game nights and box scores.
+// Dates are set relative to today, so the demo always has finished rounds and one coming up.
 const fs = require('fs');
 const path = require('path');
 
+const DEMO = process.argv.includes('--demo') || process.env.DEMO === '1';
 const dataDir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
-const dbFile = process.env.DB_FILE || path.join(dataDir, 'fantasy.db');
+const dbFile = process.env.DB_FILE || path.join(dataDir, DEMO ? 'demo.db' : 'fantasy.db');
+if (DEMO && !process.env.DB_FILE) process.env.DB_FILE = dbFile;
 for (const f of [dbFile, `${dbFile}-wal`, `${dbFile}-shm`]) fs.rmSync(f, { force: true });
 
 const crypto = require('crypto');
-const { run, one } = require('../src/db');
+const { run, one, all, tx } = require('../src/db');
 const { SPORTS, defaultScoring } = require('../src/sports');
 const F = require('../src/fantasy');
 const DATA = require('./demo-data.json');
@@ -50,13 +57,15 @@ function split(total, games) {
 
 // Chi's teams in each sport: [fantasy multiplier, counts for intramural points].
 // Members who are not on a listed roster go on the sport's last team (the one that does not count).
+// Tier multipliers from the club (2026-11-06): A players x1.25, B x1.0, C x0.75. B2 is a B team.
 const CLUB = {
-  softball: { teams: { A: [1, true], B: [0.75, false] }, rest: 'B' },
-  flag_football: { teams: { A: [1, true], B: [0.75, true], B2: [0.5, false] }, rest: 'B2' },
-  // Volleyball, basketball and soccer have not started: their rosters are left for an admin to fill in.
-  volleyball: { teams: { A: [1, true], B: [0.75, true], C: [0.5, false] }, rest: null },
-  basketball: { teams: { A: [1, true], B: [0.75, true], C: [0.5, true] }, rest: null },
-  soccer: { teams: { A: [1, true] }, rest: null },
+  softball: { teams: { A: [1.25, true], B: [1, false] }, rest: 'B' },
+  flag_football: { teams: { A: [1.25, true], B: [1, true], B2: [1, false] }, rest: 'B2' },
+  // Volleyball rosters are from the club (2026-11-06): A and B as listed, everyone else on C.
+  volleyball: { teams: { A: [1.25, true], B: [1, true], C: [0.75, false] }, rest: 'C' },
+  // Basketball and soccer have not started: their rosters are left for an admin to fill in.
+  basketball: { teams: { A: [1.25, true], B: [1, true], C: [0.75, true] }, rest: null },
+  soccer: { teams: { A: [1.25, true] }, rest: null },
 };
 
 // "MA 1vs.4" -> "Men's A semifinal (1 vs 4)", and so on.
@@ -74,6 +83,119 @@ function playoffLabel(raw) {
 
 const SCHEDULES = require('./schedules-2026-27.json').games;
 
+// ---------- Demo seasons ----------
+
+const DAY_MS = 86400000;
+// A Central-time date string plus "H:MM PM" -> ISO time. Central is UTC-6 in winter, -5 in summer.
+function central(dateStr, hhmm) {
+  const guess = new Date(`${dateStr}T${hhmm}:00-06:00`);
+  const off = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', timeZoneName: 'shortOffset' })
+    .formatToParts(guess).find((p) => p.type === 'timeZoneName').value; // "GMT-6"
+  const h = Number(off.replace('GMT', '')) || -6;
+  return new Date(`${dateStr}T${hhmm}:00${h < 0 ? '-' : '+'}${String(Math.abs(h)).padStart(2, '0')}:00`).toISOString();
+}
+const dayStr = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+const OPPONENTS = ['Kappa', 'Delta', 'Alpha', 'Gamma', 'Lambda', 'Theta', 'Fresh M'];
+const TIMES = { A: '21:15', B: '20:30', C: '22:00' };
+
+// The mock volleyball sheet: one row per player per game, with teams A, B and C.
+function readMockVolleyball() {
+  const lines = fs.readFileSync(path.join(__dirname, 'demo', 'mock-volleyball.csv'), 'utf8').trim().split(/\r?\n/);
+  const head = lines.shift().split(',');
+  return lines.map((l) => Object.fromEntries(l.split(',').map((v, i) => [head[i], v])));
+}
+const MOCK_VB = DEMO ? readMockVolleyball() : [];
+const VB_COLS = {
+  serves_made: 'Serves Made', serve_err: 'Serves Missed', aces: 'Aces', bad_rec: 'Bad Serve Rec', good_rec: 'Good Serve Rec',
+  attack_err: 'Attack Errors', attacks: 'Attacks', kills: 'Kills', assists: 'Assists', blocks: 'Blocks', digs: 'Digs', dig_err: 'Dig Errors',
+};
+
+// Who plays for which Chi team in the demo. Volleyball uses the real rosters; basketball and soccer
+// are dealt out at random (the real rosters aren't in yet).
+const DEMO_TEAMS = { volleyball: {}, basketball: {}, soccer: {} };
+if (DEMO) {
+  const shuffled = [...DATA.members].sort(() => random() - 0.5);
+  shuffled.slice(0, 24).forEach((n, i) => { DEMO_TEAMS.basketball[n] = ['A', 'B', 'C'][Math.floor(i / 8)]; });
+  [...DATA.members].sort(() => random() - 0.5).slice(0, 12).forEach((n) => { DEMO_TEAMS.soccer[n] = 'A'; });
+}
+
+const insertGame = (sport, week, startsAt, location, homeId, awayId, status, hs, as) => Number(run(
+  `INSERT INTO games (sport, week, starts_at, location, home_team_id, away_team_id, status, home_score, away_score)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, sport, week, startsAt, location, homeId, awayId, status, hs, as).lastInsertRowid);
+const insertLine = (gameId, athleteId, stats) => {
+  const clean = Object.fromEntries(Object.entries(stats).filter(([, v]) => v));
+  if (Object.keys(clean).length) run('INSERT INTO game_stats (game_id, athlete_id, stats) VALUES (?, ?, ?)', gameId, athleteId, JSON.stringify(clean));
+};
+
+// Made-up box score lines, shaped by position.
+function basketballLine(pos) {
+  const big = pos === 'C' || pos === 'PF';
+  const threes = big ? rand(2) : rand(4);
+  return { pts: threes * 3 + rand(big ? 12 : 10) + 2, threes, reb: rand(big ? 10 : 5) + 1, ast: rand(big ? 3 : 7),
+    stl: rand(3), blk: rand(big ? 3 : 1), tov: rand(4) };
+}
+function soccerLine(pos, cleanSheet) {
+  if (pos === 'GK') return { saves: rand(7) + 1, clean_sheet: cleanSheet ? 1 : 0, yellow: rand(10) === 0 ? 1 : 0 };
+  const fwd = pos === 'FWD', mid = pos === 'MID';
+  return { goals: random() < (fwd ? 0.45 : mid ? 0.2 : 0.05) ? 1 + rand(2) : 0, assists: random() < (mid ? 0.35 : 0.15) ? 1 : 0,
+    shots_on: rand(fwd ? 5 : mid ? 3 : 1), clean_sheet: pos === 'DEF' && cleanSheet ? 1 : 0, yellow: rand(8) === 0 ? 1 : 0 };
+}
+
+const DEMO_SEASON = {
+  // The mock sheet's game nights, moved so its last night is tomorrow: the rest are final.
+  volleyball({ sport, teamId, athleteId }) {
+    const dates = [...new Set(MOCK_VB.map((r) => r.Date))].sort((a, b) => new Date(a) - new Date(b));
+    const last = new Date(dates[dates.length - 1]);
+    const shift = Math.round((new Date(dayStr(now + DAY_MS)) - new Date(last.toISOString().slice(0, 10))) / DAY_MS);
+    const games = {};
+    for (const r of MOCK_VB) {
+      const key = `${r['Game #']}|${r.Team}`;
+      if (!games[key]) {
+        const [mm, dd, yy] = r.Date.split('/');
+        const day = dayStr(Date.UTC(+yy, +mm - 1, +dd, 12) + shift * DAY_MS);
+        const starts = central(day, TIMES[r.Team]);
+        const final = new Date(starts).getTime() < now;
+        const [ws, ls] = (r.Result.match(/(\d)-(\d)/) || [0, 0, 0]).slice(1).map(Number);
+        const won = r.Result.startsWith('W');
+        games[key] = insertGame(sport, Number(r['Game #']), starts, r.Team === 'C' ? 'Rec' : 'Nest', teamId(`Chi ${r.Team}`), teamId(r.Opponent),
+          final ? 'final' : 'scheduled', final ? (won ? ws : ls) : null, final ? (won ? ls : ws) : null);
+        games[key + '|final'] = final;
+      }
+      if (!games[key + '|final'] || r.Played !== 'Y' || !athleteId[r['Full Name']]) continue;
+      insertLine(games[key], athleteId[r['Full Name']], Object.fromEntries(Object.entries(VB_COLS).map(([k, col]) => [k, Number(r[col]) || 0])));
+    }
+  },
+  basketball: (ctx) => madeUpSeason(ctx, ['A', 'B', 'C'], basketballLine, (mine) => [mine + rand(10) + 4, 30 + rand(30)]),
+  soccer: (ctx) => madeUpSeason(ctx, ['A'], null, null),
+};
+
+// Six game nights: five already played (about every four days) and one two days from now.
+function madeUpSeason({ sport, teamId, athleteId, teamOf }, letters, lineFor, scoreFor) {
+  const offsets = [-19, -15, -11, -7, -3, 2];
+  const pos = (name) => DATA.positions[sport]?.[name] || SPORTS[sport].positions[rand(SPORTS[sport].positions.length)];
+  offsets.forEach((off, i) => {
+    const day = dayStr(now + off * DAY_MS);
+    for (const L of letters) {
+      const opp = `${OPPONENTS[(i + letters.indexOf(L)) % OPPONENTS.length]} ${L}`;
+      const starts = central(day, TIMES[L]);
+      const final = new Date(starts).getTime() < now;
+      const players = Object.keys(teamOf).filter((n) => teamOf[n] === L);
+      const gid = insertGame(sport, i + 1, starts, sport === 'soccer' ? 'East Field' : 'Gym', teamId(`Chi ${L}`), teamId(opp), final ? 'final' : 'scheduled', null, null);
+      if (!final) continue;
+      let ours = 0;
+      let theirs = sport === 'soccer' ? rand(3) : 0;
+      for (const n of players) {
+        if (random() < 0.12) continue; // missed the game
+        const line = sport === 'soccer' ? soccerLine(n === players[0] ? 'GK' : pos(n) === 'GK' ? 'DEF' : pos(n), theirs === 0) : lineFor(pos(n));
+        ours += line.pts || line.goals || 0;
+        insertLine(gid, athleteId[n], line);
+      }
+      const [hs, as] = sport === 'soccer' ? [ours, theirs] : scoreFor(ours);
+      run('UPDATE games SET home_score = ?, away_score = ? WHERE id = ?', hs, as, gid);
+    }
+  });
+}
+
 for (const [sport, club] of Object.entries(CLUB)) {
   const teamIds = {};
   const teamId = (name) => {
@@ -90,11 +212,18 @@ for (const [sport, club] of Object.entries(CLUB)) {
   // Every member is in every sport's player pool.
   const athleteId = {};
   const teamOf = {};
+  const demoTeams = DEMO ? DEMO_TEAMS[sport] : null;
   for (const name of DATA.members) {
-    const letter = DATA.teams[sport]?.[name] || club.rest;
+    const letter = demoTeams?.[name] || DATA.teams[sport]?.[name] || club.rest;
     teamOf[name] = letter;
     athleteId[name] = Number(run('INSERT INTO athletes (sport, name, position, im_team_id) VALUES (?, ?, ?, ?)',
       sport, name, DATA.positions[sport]?.[name] || null, letter ? teamId(`Chi ${letter}`) : null).lastInsertRowid);
+  }
+
+  // Demo: volleyball, basketball and soccer get their own made-up season instead.
+  if (DEMO && DEMO_SEASON[sport]) {
+    DEMO_SEASON[sport]({ sport, teamId, athleteId, teamOf });
+    continue;
   }
 
   // Games: the real 26-27 schedule where there is one (none yet for basketball and soccer).
@@ -130,7 +259,13 @@ for (const [sport, club] of Object.entries(CLUB)) {
 
 // One fantasy league per sport, in different states so every screen has something on it.
 // Each Chi game night is a fantasy round. Softball had 4 game nights and flag football 5.
-const leagues = {
+const leagues = DEMO ? {
+  softball: { state: 'complete', playoffs: 2, season: '2026-27' },
+  flag_football: { state: 'complete', playoffs: 2, season: '2026-27' },
+  volleyball: { state: 'active', playoffs: 2, season: '2026-27' },
+  basketball: { state: 'active', playoffs: 2, season: '2026-27' },
+  soccer: { state: 'active', playoffs: 2, season: '2026-27' },
+} : {
   softball: { state: 'complete', playoffs: 2, season: '2026-27' },
   flag_football: { state: 'active', playoffs: 2, season: '2026-27' },
   volleyball: { state: 'setup', playoffs: 2, season: '2026-27' },
@@ -173,6 +308,30 @@ for (const [sport, cfg] of Object.entries(leagues)) {
     F.makePick(league, pool[rand(Math.min(4, pool.length))].id);
   }
   if (cfg.state === 'complete') run(`UPDATE leagues SET status = 'complete' WHERE id = ?`, leagueId);
+}
+
+// Demo: a little trade and waiver action in the volleyball league, so those screens have something on them.
+if (DEMO) {
+  const T = require('../src/trades');
+  const league = one(`SELECT id FROM leagues WHERE sport = 'volleyball'`);
+  const L = F.getLeague(league.id);
+  const teamOfUser = (u) => one('SELECT lt.* FROM league_teams lt JOIN users us ON us.id = lt.user_id WHERE lt.league_id = ? AND us.username = ?', L.id, u);
+  const best = (team, n) => all(`SELECT athlete_id FROM roster WHERE league_team_id = ? AND dropped_at IS NULL ORDER BY id`, team.id).slice(0, n).map((r) => r.athlete_id);
+  const last = (team) => all(`SELECT athlete_id FROM roster WHERE league_team_id = ? AND dropped_at IS NULL ORDER BY id DESC`, team.id)[0].athlete_id;
+  const [jp, brody, steven, adminTeam] = ['jp', 'brody', 'steven', 'admin'].map(teamOfUser);
+  tx(() => {
+    // A finished trade between Brody and the admin.
+    const done = T.propose(L, brody, adminTeam.id, [last(brody)], [last(adminTeam)], 'Need a setter, you need a hitter.');
+    T.execute(L, one('SELECT * FROM trades WHERE id = ?', done), new Date(now - 2 * DAY_MS).toISOString());
+    // An open offer to JP, waiting for an answer.
+    T.propose(L, steven, jp.id, [best(steven, 2)[1]], [last(jp)], 'Fair swap? He has been hot lately.');
+    // JP dropped a player this morning; Brody put in a claim.
+    const dropped = last(jp);
+    run('UPDATE roster SET dropped_at = ? WHERE league_team_id = ? AND athlete_id = ? AND dropped_at IS NULL', new Date(now - 3 * 3600000).toISOString(), jp.id, dropped);
+    T.putOnWaivers(L, dropped, new Date(now - 3 * 3600000).toISOString());
+    F.log(L.id, `${jp.name} dropped ${one('SELECT name FROM athletes WHERE id = ?', dropped).name}`, 'move');
+    T.claim(L, brody, dropped, last(brody));
+  });
 }
 
 const counts = one('SELECT (SELECT COUNT(*) FROM athletes) AS a, (SELECT COUNT(*) FROM games) AS g, (SELECT COUNT(*) FROM game_stats) AS s');

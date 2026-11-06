@@ -1,10 +1,11 @@
 const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
-const { one, all, run, tx } = require('./db');
+const { one, all, run, tx, DEMO } = require('./db');
 const { SPORTS, defaultScoring } = require('./sports');
 const F = require('./fantasy');
 const T = require('./trades');
+const I = require('./importer');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -101,6 +102,7 @@ app.get('/api/meta', (req, res) => {
     needsClubCode: !!CLUB_CODE,
     google: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
     firstUser: one('SELECT COUNT(*) AS c FROM users').c === 0,
+    demo: DEMO,
   });
 });
 
@@ -617,6 +619,41 @@ app.put('/api/games/:id/stats', needAdmin, wrap((req) => {
   return { ok: true };
 }));
 
+// Upload a game night straight from the club's stat sheet (CSV). Without `save` it only previews what it
+// read; with `save` it writes each section's box score to its game, and with `set_scores` also the
+// result on the sheet ("W 2-1") as the final score. Fantasy points update right away.
+app.post('/api/sports/:sport/import', needAdmin, wrap((req) => {
+  const sport = requireSport(req.params.sport);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(req.body.date || '') ? req.body.date : null;
+  const sheet = I.readSheet(sport, String(req.body.text || ''), date);
+  if (!req.body.save) return sheet;
+  const ready = sheet.sections.filter((x) => x.game);
+  if (!ready.length) throw httpError(400, sheet.problems[0] || 'Nothing in the sheet matched a game.');
+  const keys = SPORTS[sport].stats.map(([k]) => k);
+  let lines = 0;
+  tx(() => {
+    for (const sec of ready) {
+      for (const r of sec.rows) {
+        const stats = Object.fromEntries(Object.entries(r.stats).filter(([k, v]) => keys.includes(k) && v));
+        if (!Object.keys(stats).length) {
+          run('DELETE FROM game_stats WHERE game_id = ? AND athlete_id = ?', sec.game.id, r.athlete_id);
+          continue;
+        }
+        run(`INSERT INTO game_stats (game_id, athlete_id, stats) VALUES (?, ?, ?)
+             ON CONFLICT (game_id, athlete_id) DO UPDATE SET stats = excluded.stats`, sec.game.id, r.athlete_id, JSON.stringify(stats));
+        lines++;
+      }
+      if (req.body.set_scores && sec.result) {
+        const [home, away] = sec.game.club_home ? [sec.result.chi, sec.result.opp] : [sec.result.opp, sec.result.chi];
+        run(`UPDATE games SET home_score = ?, away_score = ?, status = 'final' WHERE id = ?`, home, away, sec.game.id);
+      } else if (req.body.set_scores) {
+        run(`UPDATE games SET status = 'final' WHERE id = ? AND status != 'final'`, sec.game.id);
+      }
+    }
+  });
+  return { ...sheet, saved: { games: ready.length, lines } };
+}));
+
 // ---------- Leagues ----------
 
 app.post('/api/leagues', needAdmin, wrap((req) => {
@@ -1100,9 +1137,9 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.status ? err.message : 'Something went wrong on the server.' });
 });
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || (DEMO ? 3001 : 3000);
 if (require.main === module) {
-  app.listen(PORT, () => console.log(`Chi Lambda Phi Fantasy running on http://localhost:${PORT}`));
+  app.listen(PORT, () => console.log(`Chi Lambda Phi Fantasy${DEMO ? ' DEMO' : ''} running on http://localhost:${PORT}`));
 }
 
 module.exports = app;

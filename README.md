@@ -68,6 +68,14 @@ Every matchup shows who the AI picks, the win chance, and both teams' projected 
 
 Each league has its own scoring rules (points per stat), which the commissioner can change at any time. Everything recalculates from the raw stats.
 
+## Demo version
+
+`npm run demo` builds a separate demo database (`data/demo.db`) and starts the app at http://localhost:3001 with a red **Demo** badge. Your real leagues in `data/fantasy.db` are never touched. Every league is drafted and playing: Softball and Flag Football are finished, and Volleyball (from the mock stat sheet in `scripts/demo/mock-volleyball.csv`), Basketball and Soccer (made-up games) have finished rounds plus one coming up, with AI predictions, a trade, an open offer and a waiver claim. Dates are set relative to the day you build it. `npm run demo:start` restarts it without rebuilding. Log in as admin / password.
+
+## Uploading stats from the stat sheet
+
+Admin > Games & stats (or Enter score & stats on any game) has **Upload a game night from your stat sheet**. Export the sheet as CSV and pick it. Each section (A-Team, B-Team, C-Team) goes to that Chi team's game on the sheet's date, or the date you pick. Players can be first names, last names or nicknames (Q, Jerry); a shared first name goes to the player on that Chi team. Column titles are matched to the sport's stats, and % columns are ignored. Preview first, then save: the box scores, final scores (from "W 2-1" on the section row) and fantasy points update right away. Typing numbers by hand on a game's page still works too; each game lists the players on each Chi team.
+
 ## Settings
 
 | Variable | What it does |

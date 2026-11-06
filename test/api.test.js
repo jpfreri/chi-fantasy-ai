@@ -407,3 +407,33 @@ test('the admin sees every league on the home page; players do not', async () =>
   assert.ok(active.leader && Array.isArray(active.matchups));
   assert.equal((await bob('GET', '/api/home')).data.allLeagues, null);
 });
+
+test('stat sheet upload: sections go to that Chi team game, nicknames match, scores come from the sheet', async () => {
+  const chi = await admin('POST', '/api/teams', { sport: 'volleyball', name: 'Chi B', is_club: true });
+  const opp = await admin('POST', '/api/teams', { sport: 'volleyball', name: 'Kappa B' });
+  await admin('POST', '/api/athletes/bulk', { sport: 'volleyball', text: 'Jeremiah Lorance, OH, Chi B\nJaxon Santos, L, Chi B\nGavin Meyer, DS, Chi B\nGavin Schmidt, DS' });
+  const g = await admin('POST', '/api/games', { sport: 'volleyball', home_team_id: chi.data.id, away_team_id: opp.data.id, starts_at: '2026-11-04T02:30:00.000Z', status: 'scheduled' });
+  const sheet = [
+    'A-Team,,,,', 'Player,Serves Made,Serves Missed,Aces,Kills', 'Luke,5,,1,2', 'TOTAL,5,0,1,2',
+    'B-Team,Game 1,11/03/2026,vs Kappa B,W 2-1', 'Player,Serves Made,Serves Missed,Aces,Serve %,Kills,Dig Errors',
+    'Jerry,1,2,,33%,13,', 'Santos,9,0,,100%,,1', 'Gavin,,,,#DIV/0!,,', 'Nobody,1,,,,,', 'TOTAL,10,2,0,,13,1',
+  ].join('\n');
+  const prev = await bob('POST', '/api/sports/volleyball/import', { text: sheet });
+  assert.equal(prev.status, 403, 'only admins upload stats');
+  const p = await admin('POST', '/api/sports/volleyball/import', { text: sheet });
+  assert.equal(p.status, 200);
+  const b = p.data.sections.find((x) => x.letter === 'B');
+  assert.equal(b.game.id, g.data.id);
+  assert.deepEqual(b.rows.map((r) => r.name), ['Jeremiah Lorance', 'Jaxon Santos', 'Gavin Meyer'], 'Gavin goes to the one on Chi B');
+  assert.deepEqual(b.rows[0].stats, { serves_made: 1, serve_err: 2, kills: 13 });
+  assert.equal(b.unmatched[0].sheet_name, 'Nobody');
+  assert.ok(p.data.problems.some((x) => /Chi A/.test(x)), 'no Chi A volleyball team here, so that section is flagged');
+  const saved = await admin('POST', '/api/sports/volleyball/import', { text: sheet, save: true, set_scores: true });
+  assert.equal(saved.data.saved.lines, 2);
+  const game = await admin('GET', `/api/games/${g.data.id}`);
+  assert.equal(game.data.game.status, 'final');
+  assert.equal(game.data.game.home_score, 2);
+  assert.equal(game.data.game.away_score, 1);
+  const jerry = game.data.players.find((x) => x.name === 'Jeremiah Lorance');
+  assert.equal(jerry.points, 0.5 * 1 - 2 + 3 * 13, 'volleyball scoring: serves made 0.5, missed -1, kills 3');
+});

@@ -396,3 +396,4 @@ td.num { white-space: nowrap; }
 .admin-league { margin: 0; }
 a.btn.small { padding: 4px 11px; font-size: .8rem; }
 .commish-note { border-color: rgba(124, 92, 255, .5); background: linear-gradient(120deg, var(--brand-soft), transparent), var(--card); }
+.badge.demo { background: var(--live); color: #fff; margin-left: 2px; }

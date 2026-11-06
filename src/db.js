@@ -4,7 +4,9 @@ const fs = require('fs');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
-const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, 'fantasy.db');
+// Demo mode (npm run demo) uses its own database, so the real league data is never touched.
+const DEMO = process.argv.includes('--demo') || process.env.DEMO === '1';
+const DB_FILE = process.env.DB_FILE || path.join(DATA_DIR, DEMO ? 'demo.db' : 'fantasy.db');
 
 const db = new DatabaseSync(DB_FILE);
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
@@ -211,6 +213,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS waiver_claims (
   decided_at TEXT
 )`);
 
+// Volleyball switched to the club's own stat sheet scoring (2026-11-06). Leagues still on the old
+// default get the new one; a league whose commissioner customized scoring keeps it.
+{
+  const OLD = { kills: 1, aces: 2, blocks: 2, digs: 0.5, assists: 0.5, serve_err: -1, attack_err: -0.5 };
+  const { defaultScoring } = require('./sports');
+  for (const l of db.prepare(`SELECT id, scoring FROM leagues WHERE sport = 'volleyball'`).all()) {
+    const cur = JSON.parse(l.scoring);
+    const same = Object.keys(OLD).length === Object.keys(cur).length && Object.entries(OLD).every(([k, v]) => cur[k] === v);
+    if (same) db.prepare('UPDATE leagues SET scoring = ? WHERE id = ?').run(JSON.stringify(defaultScoring('volleyball')), l.id);
+  }
+}
+
 function tx(fn) {
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -227,4 +241,4 @@ const one = (sql, ...params) => db.prepare(sql).get(...params);
 const all = (sql, ...params) => db.prepare(sql).all(...params);
 const run = (sql, ...params) => db.prepare(sql).run(...params);
 
-module.exports = { db, tx, one, all, run, DB_FILE };
+module.exports = { db, tx, one, all, run, DB_FILE, DEMO };
