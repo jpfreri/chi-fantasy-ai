@@ -278,19 +278,22 @@ for (const [sport, cfg] of Object.entries(leagues)) {
   const leagueId = Number(run(
     `INSERT INTO leagues (sport, name, season, roster_size, pick_seconds, scoring, created_by, regular_weeks, playoff_teams)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    sport, `ΧΛΦ ${s.name}`, cfg.season, s.rosterSize, cfg.state === 'drafting' ? 600 : 90,
+    sport, `ΧΛΦ ${s.name}`, cfg.season, DEMO ? 6 : s.rosterSize, cfg.state === 'drafting' ? 600 : 90,
     JSON.stringify(defaultScoring(sport)), users[0].id, F.defaultRegularWeeks(sport, 'game', cfg.playoffs), cfg.playoffs
   ).lastInsertRowid);
   // Quinten's fantasy teams were removed at his request; his login stays.
   const managers = users.filter((u) => u.name !== 'Quinten Talamantes');
-  const members = cfg.state === 'setup' ? managers.slice(0, 3) : managers;
+  // Demo leagues have 4 teams of 6. Volleyball is all people (its trade and waiver examples need four
+  // managers); the others are two people plus the two bots.
+  const bots = !DEMO || sport !== 'volleyball';
+  const members = cfg.state === 'setup' ? managers.slice(0, 3) : DEMO && bots ? managers.slice(0, 2) : managers;
   members.forEach((u, i) => {
     const name = teamNames[(i + leagueId) % teamNames.length];
     run('INSERT INTO league_teams (league_id, user_id, name, draft_slot) VALUES (?, ?, ?, ?)', leagueId, u.id, name, i + 1);
     F.log(leagueId, `${u.name} joined as ${name}`);
   });
   // Two secret bots per league: one always trying to win, one always trying to lose.
-  for (const [kind, owner, team] of [['win', 'Big Mike', 'The Machine'], ['lose', 'Old Man Jenkins', 'Tank Commanders']]) {
+  for (const [kind, owner, team] of bots ? [['win', 'Big Mike', 'The Machine'], ['lose', 'Old Man Jenkins', 'Tank Commanders']] : []) {
     const uid = Number(run('INSERT INTO users (username, display_name, pass_hash, bot) VALUES (?, ?, ?, ?)',
       `bot-${kind}-${leagueId}`, owner, hash(crypto.randomBytes(24).toString('hex')), kind).lastInsertRowid);
     run('INSERT INTO league_teams (league_id, user_id, name, draft_slot) VALUES (?, ?, ?, ?)', leagueId, uid, team, members.length + (kind === 'win' ? 1 : 2));
