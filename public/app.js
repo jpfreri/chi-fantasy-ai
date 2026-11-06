@@ -415,7 +415,10 @@ async function pageSport(key, tab = 'schedule') {
           <div class="field"><label>Seconds per pick (0 = no clock)</label><input name="pick_seconds" type="number" min="0" value="90"></div>
           <div class="field"><label>Rounds</label><select name="round_by"><option value="game">One per Chi game night</option><option value="week">One per intramural week</option></select></div>
           <div class="field"><label>Regular season rounds (blank = fill the season)</label><input name="regular_weeks" type="number" min="1" max="30" placeholder="Auto"></div>
-          <div class="field"><label>Playoff teams</label><select name="playoff_teams"><option value="4">Top 4 (semis + final)</option><option value="2">Top 2 (final)</option><option value="0">No playoffs</option></select></div>
+          <div class="field"><label>Trade deadline (last day)</label><input name="trade_deadline" type="date" value="${esc(L.trade_deadline || '')}"></div>
+        <div class="field"><label>Trade review period (hours, 0 = none)</label><input name="trade_review_hours" type="number" min="0" max="168" value="${L.trade_review_hours}"></div>
+        <div class="field"><label>Waiver period (hours, 0 = none)</label><input name="waiver_hours" type="number" min="0" max="168" value="${L.waiver_hours}"></div>
+        <div class="field"><label>Playoff teams</label><select name="playoff_teams"><option value="4">Top 4 (semis + final)</option><option value="2">Top 2 (final)</option><option value="0">No playoffs</option></select></div>
         </div>
         <p class="muted small">Each round you play a different fantasy team. With game-night rounds, every night Chi plays is a round, and all the Chi games that night count. The playoffs use the last rounds of the season.</p>
         <button>Create league</button>
@@ -712,8 +715,9 @@ async function pageLeague(id, tab, weekParam) {
   // The third part of the URL: a round number on the matchups tab, a filter on the activity tab.
   const tabArg = weekParam;
   const tabs = [['matchups', 'Matchups'], ['standings', 'Standings'], ['power', 'Power rankings'], ['playoffs', 'Playoffs'], ['rosters', 'Rosters'],
-    ['players', 'Free agents'], ['scoring', 'Scoring & settings'], ['activity', 'Activity']];
+    ['players', 'Free agents'], ['trades', 'Trades & waivers'], ['scoring', 'Scoring & settings'], ['activity', 'Activity']];
   if (!d.playoffs) tabs.splice(tabs.findIndex(([k]) => k === 'playoffs'), 1);
+  if (L.status !== 'active' && !d.trades?.length) tabs.splice(tabs.findIndex(([k]) => k === 'trades'), 1);
   if (L.status === 'setup' || L.status === 'drafting') tabs.splice(0, tabs.length - 2, ['setup', L.status === 'setup' ? 'Draft setup' : 'Teams']);
   tab = tab && tabs.some(([k]) => k === tab) ? tab : tabs[0][0];
   const week = Math.min(d.lastWeek, Math.max(1, Number(weekParam) || d.currentWeek || 1));
@@ -829,13 +833,42 @@ async function pageLeague(id, tab, weekParam) {
       return `<div class="card">
         ${L.status !== 'active' ? '<p class="muted">Free agency is closed.</p>' : myTeam ? `<p class="muted small">${full
           ? 'Your roster is full, so adding a player means choosing someone to drop.'
-          : `You have ${L.roster_size - myTeam.players.length} open roster spot(s).`}</p>` : '<p class="muted small">You are not in this league.</p>'}
+          : `You have ${L.roster_size - myTeam.players.length} open roster spot(s).`}${L.waiver_hours > 0 ? ` Dropped players sit on waivers for ${L.waiver_hours} hours: put in a claim, and the team with the best waiver priority gets him.` : ''}</p>` : '<p class="muted small">You are not in this league.</p>'}
         <div class="table-wrap"><table><thead><tr><th>Player</th><th>Pos</th><th>Team</th><th>Next game</th><th class="num">GP</th><th class="num">Pts</th><th class="num">Avg</th><th class="num">Proj</th><th></th></tr></thead>
-        <tbody>${d.freeAgents.map((a) => `<tr><td><a href="#/player/${a.id}">${esc(a.name)}</a></td><td>${esc(a.position || '')}</td>
+        <tbody>${d.freeAgents.map((a) => `<tr><td><a href="#/player/${a.id}">${esc(a.name)}</a>${a.waiver_until
+          ? ` <span class="badge wv" title="On waivers until ${esc(fmtDate(a.waiver_until))}">W</span><div class="muted small">Waivers clear ${fmtDate(a.waiver_until)}</div>` : ''}</td><td>${esc(a.position || '')}</td>
           <td>${esc(a.team_name || '')}</td><td class="small muted">${nextGameText(a.next_game)}</td><td class="num">${a.games}</td><td class="num">${pts(a.points)}</td>
           <td class="num">${a.avg.toFixed(1)}</td><td class="num"><strong>${a.proj_avg.toFixed(1)}</strong></td>
-          <td class="num">${myTeam && L.status === 'active' ? `<button class="small" data-act="add" data-id="${a.id}" data-name="${esc(a.name)}">Add</button>` : ''}</td></tr>`).join('') ||
+          <td class="num">${myTeam && L.status === 'active' ? `<button class="small ${a.waiver_until ? 'secondary' : ''}" data-act="add" data-id="${a.id}" data-name="${esc(a.name)}" data-waiver="${a.waiver_until ? 1 : ''}">${a.waiver_until ? 'Claim' : 'Add'}</button>` : ''}</td></tr>`).join('') ||
           '<tr><td colspan="9" class="empty">No free agents.</td></tr>'}</tbody></table></div></div>`;
+    },
+
+    trades: () => {
+      const T = d.trades || [];
+      const me = myTeam?.id;
+      const open = T.filter((t) => t.status === 'pending' || t.status === 'review');
+      const done = T.filter((t) => !(t.status === 'pending' || t.status === 'review'));
+      const W = d.waivers;
+      const deadline = L.trade_deadline ? `Trade deadline: <strong>${fmtDate(L.trade_deadline + 'T12:00:00', false)}</strong>${d.pastDeadline ? ' (passed)' : ''}.` : 'No trade deadline.';
+      const review = L.trade_review_hours > 0 ? `Accepted trades wait ${L.trade_review_hours} hours for the commissioner to review before they go through.` : 'Accepted trades go through right away.';
+      return `<div class="grid two">
+        <div class="card"><h2>Trades</h2>
+          <p class="muted small">${deadline} ${review} ${myTeam && L.status === 'active' && !d.pastDeadline ? 'To offer a trade, open <a href="#/league/' + L.id + '/rosters">Rosters</a> and pick a team.' : ''}</p>
+          ${open.map((t) => tradeCard(t, me)).join('') || '<p class="empty">No open trades.</p>'}
+          ${done.length ? `<h3>Recent</h3>${done.map((t) => tradeCard(t, me)).join('')}` : ''}
+        </div>
+        ${W ? `<div class="card"><h2>Waivers</h2>
+          <p class="muted small">${W.hours > 0 ? `Dropped players sit on waivers for ${W.hours} hours. When their time is up, the claim from the team highest on this list wins. The order is reverse standings: the last-place team picks first.` : 'Waivers are off: dropped players are free agents right away.'}</p>
+          <h3>Waiver order</h3><ol class="small">${W.order.map((o) => `<li class="${o.team_id === me ? 'me' : ''}"><strong>${esc(o.name)}</strong> <span class="muted">${esc(o.owner_name || '')}</span></li>`).join('')}</ol>
+          <h3>On waivers now</h3>${W.players.length ? `<table><tbody>${W.players.map((p) => `<tr><td><a href="#/player/${p.athlete_id}">${esc(p.name)}</a></td>
+            <td class="muted small">clears ${fmtDate(p.clears_at)}</td>
+            <td class="num">${myTeam ? `<button class="small secondary" data-act="add" data-id="${p.athlete_id}" data-name="${esc(p.name)}" data-waiver="1">Claim</button>` : ''}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">Nobody is on waivers.</p>'}
+          ${myTeam ? `<h3>Your claims</h3>${W.claims.length ? `<table><tbody>${W.claims.map((c) => `<tr><td><strong>${esc(c.name)}</strong>${c.drop_name ? ` <span class="muted small">· drop ${esc(c.drop_name)}</span>` : ''}
+              ${c.reason ? `<div class="muted small">${esc(c.reason)}</div>` : ''}</td>
+            <td class="small ${c.status === 'won' ? 'good' : c.status === 'lost' ? 'bad' : 'muted'}">${c.status === 'pending' && c.clears_at ? `pending · ${fmtDate(c.clears_at)}` : esc(c.status)}</td>
+            <td class="num">${c.status === 'pending' ? `<button class="small danger" data-act="cancelClaim" data-id="${c.id}">Cancel</button>` : ''}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">No claims.</p>'}` : ''}
+        </div>` : ''}
+      </div>`;
     },
 
     scoring: () => `<form class="card" data-form="scoring">
@@ -864,7 +897,7 @@ async function pageLeague(id, tab, weekParam) {
     </form>` : ''}`,
 
     activity: () => {
-      const kinds = [['all', 'All'], ['move', 'Adds & drops'], ['draft', 'Draft'], ['commish', 'Commissioner'], ['league', 'League']];
+      const kinds = [['all', 'All'], ['move', 'Adds & drops'], ['trade', 'Trades'], ['draft', 'Draft'], ['commish', 'Commissioner'], ['league', 'League']];
       const k = kinds.some(([x]) => x === tabArg) ? tabArg : 'all';
       const rows = d.activity.filter((a) => k === 'all' || a.kind === k);
       return `<div class="weekpills">${kinds.map(([x, label]) => `<a href="#/league/${L.id}/activity/${x}" class="${x === k ? 'on' : ''}">${label}</a>`).join('')}</div>
@@ -928,6 +961,37 @@ async function pageLeague(id, tab, weekParam) {
         Drop <strong>${esc(p.name)}</strong> <span class="muted small">${esc(p.position || '')} · ${Number(p.points).toFixed(1)} pts</span></button>`).join('')}</div>`);
   };
   actions.confirmAdd = (el) => addPlayer(el.dataset.add, el.dataset.name, el.dataset.drop);
+  actions.cancelClaim = async (el) => { await DEL(`/api/leagues/${L.id}/claims/${el.dataset.id}`); toast('Claim cancelled'); reload(); };
+  const tradeAct = (action, msg) => async (el) => {
+    if (action === 'veto' && !confirm('Veto this trade? Neither team gets the players.')) return;
+    const r = await POST(`/api/leagues/${L.id}/trades/${el.dataset.id}/${action}`);
+    toast(r.status === 'review' ? 'Accepted. The trade goes through after the review period.' : msg);
+    reload();
+  };
+  actions.acceptTrade = tradeAct('accept', 'Trade done!');
+  actions.rejectTrade = tradeAct('reject', 'Offer rejected');
+  actions.cancelTrade = tradeAct('cancel', 'Offer cancelled');
+  actions.approveTrade = tradeAct('approve', 'Trade approved');
+  actions.vetoTrade = tradeAct('veto', 'Trade vetoed');
+  actions.tradeWith = (el) => {
+    const them = byId[el.dataset.id];
+    const pick = (team, name) => team.players.map((p) => `<label class="check"><input type="checkbox" name="${name}" value="${p.athlete_id}">
+      ${esc(p.name)} <span class="muted small">${esc(p.position || '')} · ${pts(p.points)}</span></label>`).join('') || '<p class="empty">No players.</p>';
+    openDialog(`<h2>Trade with ${esc(them.name)}</h2>
+      <form data-form="trade"><input type="hidden" name="to" value="${them.id}">
+        <div class="grid two"><div><h3>You give</h3>${pick(myTeam, 'give')}</div><div><h3>You get</h3>${pick(them, 'get')}</div></div>
+        <div class="field"><label>Note (optional)</label><input name="note" maxlength="200" placeholder="Why it's a good deal for them"></div>
+        <p class="muted small">Rosters can't go over ${L.roster_size} players, so an uneven trade needs an open spot.</p>
+        <button class="gold">Send offer</button></form>`);
+    forms.trade = async (f, form) => {
+      const ids = (n) => [...form.querySelectorAll(`input[name=${n}]:checked`)].map((x) => Number(x.value));
+      const r = await POST(`/api/leagues/${L.id}/trades`, { to_team_id: Number(f.to), give: ids('give'), get: ids('get'), note: f.note });
+      closeDialog();
+      toast(r.status === 'pending' ? `Offer sent to ${them.name}` : r.status === 'rejected' ? `${them.name} turned it down` : r.status === 'review' ? `${them.name} accepted. It goes through after review.` : `${them.name} accepted!`);
+      location.hash = `#/league/${L.id}/trades`;
+      reload();
+    };
+  };
   const lineup = async (body) => {
     await POST(`/api/leagues/${L.id}/lineup`, body);
     closeDialog();
@@ -983,6 +1047,24 @@ async function pageLeague(id, tab, weekParam) {
     await DEL(`/api/leagues/${L.id}`);
     location.hash = `#/sport/${L.sport}/leagues`;
   };
+
+  function tradeCard(t, me) {
+    const list = (items) => items.map((i) => `<a href="#/player/${i.athlete_id}">${esc(i.name)}</a> <span class="muted small">${i.points.toFixed(1)}</span>`).join('<br>') || '<span class="muted">nothing</span>';
+    const label = { pending: 'Offer', review: 'Under review', done: 'Done', rejected: 'Rejected', cancelled: 'Cancelled', vetoed: 'Vetoed', failed: 'Fell through' }[t.status] || t.status;
+    const btns = [];
+    if (t.status === 'pending' && t.receiver_team_id === me) btns.push(['acceptTrade', 'Accept', ''], ['rejectTrade', 'Reject', 'danger']);
+    if (t.status === 'pending' && (t.proposer_team_id === me || d.isCommish)) btns.push(['cancelTrade', 'Cancel offer', 'secondary']);
+    if (t.status === 'review' && d.isCommish) btns.push(['approveTrade', 'Approve now', ''], ['vetoTrade', 'Veto', 'danger']);
+    return `<div class="trade ${t.status}">
+      <div class="row small"><span class="badge">${label}</span><span class="grow"></span><span class="muted">${fmtDate(t.decided_at || t.accepted_at || t.created_at)}</span></div>
+      <div class="tradecols"><div><div class="muted small">${esc(t.proposer)} gives</div>${list(t.gives)}</div>
+        <div class="arrow">⇄</div><div><div class="muted small">${esc(t.receiver)} gives</div>${list(t.gets)}</div></div>
+      ${t.note ? `<p class="small">“${esc(t.note)}”</p>` : ''}
+      ${t.status === 'review' && t.process_at ? `<p class="muted small">Goes through ${fmtDate(t.process_at)} unless the commissioner vetoes it.</p>` : ''}
+      ${t.reason && t.status !== 'done' ? `<p class="muted small">${esc(t.reason)}</p>` : ''}
+      ${btns.length ? `<div class="row">${btns.map(([a, l, c]) => `<button class="small ${c}" data-act="${a}" data-id="${t.id}">${l}</button>`).join('')}</div>` : ''}
+    </div>`;
+  }
 
   function recordsCard() {
     const r = d.records;
@@ -1050,6 +1132,7 @@ async function pageLeague(id, tab, weekParam) {
     const open = settled ? Math.max(0, d.starters - starters.length) : 0;
     return `<div class="card">
       <div class="row"><h3 style="margin:0">${esc(t.name)}</h3><span class="grow"></span>${pts(t.points)}</div>
+      ${myTeam && !mine && L.status === 'active' && !d.pastDeadline ? `<button class="small secondary" data-act="tradeWith" data-id="${t.id}" style="margin:4px 0">Propose trade</button>` : ''}
       <div class="muted small" style="margin-bottom:8px">${esc(t.owner_name)} · ${settled ? `${t.w}-${t.l}${t.t ? `-${t.t}` : ''} · Rank ${t.rank}${t.streak ? ` · ${t.streak}` : ''}` : ''}</div>
       <table><tbody>${starters.map(row).join('')}
         ${Array.from({ length: open }, () => `<tr><td class="slot">S</td><td class="muted">Empty starting spot</td><td></td>${canEdit ? '<td></td>' : ''}</tr>`).join('')}

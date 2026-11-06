@@ -4,6 +4,7 @@ const path = require('path');
 const { one, all, run, tx } = require('./db');
 const { SPORTS, defaultScoring } = require('./sports');
 const F = require('./fantasy');
+const T = require('./trades');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -614,7 +615,9 @@ function tick(leagueId) {
   F.processExpiredPicks(leagueId);
   F.runBots(leagueId);
   const league = F.getLeague(leagueId);
-  if (league) F.fixLineups(league);
+  if (!league) return;
+  F.fixLineups(league);
+  if (league.status === 'active') tx(() => { T.processTrades(league); T.processWaivers(league); });
 }
 
 // Admins can see which teams are bots; everyone else sees ordinary teams.
@@ -628,8 +631,10 @@ function markBots(req, leagueId, teams) {
 function freeAgentList(league) {
   const P = F.playerProjections(league);
   const next = F.nextGames(league.sport);
+  const waivers = T.onWaivers(league.id);
   return F.availableAthletes(league).map((a) => ({
     ...a,
+    waiver_until: waivers[a.id] || null,
     avg: a.games ? Math.round((a.points / a.games) * 10) / 10 : 0,
     proj_avg: Math.round((P.perGame[a.id]?.est || 0) * 10) / 10,
     next_game: next[a.im_team_id] || null,
@@ -665,6 +670,9 @@ app.get('/api/leagues/:id', needUser, wrap((req) => {
     starters: view.starters,
     myTeam: mine,
     isCommish: isCommish(req.user, league),
+    trades: league.status === 'active' || league.status === 'complete' ? T.tradeList(league, mine?.id, isCommish(req.user, league)) : [],
+    waivers: league.status === 'active' ? T.waiverInfo(league, view.teams, mine?.id) : null,
+    pastDeadline: T.pastDeadline(league),
     freeAgents: league.status === 'active' ? freeAgentList(league) : [],
     activity: all('SELECT * FROM activity WHERE league_id = ? ORDER BY id DESC LIMIT 30', league.id),
   };
@@ -693,13 +701,20 @@ app.put('/api/leagues/:id', needUser, wrap((req) => {
   // Switching between game-night and weekly rounds resets the season length unless a new one is given.
   const asked = req.body.regular_weeks ? clampWeeks(req.body.regular_weeks) : league.regular_weeks;
   const regularWeeks = by !== league.round_by && asked === league.regular_weeks ? F.defaultRegularWeeks(league.sport, by, playoffs) : asked;
+  const deadline = req.body.trade_deadline !== undefined
+    ? (/^\d{4}-\d{2}-\d{2}$/.test(req.body.trade_deadline) ? req.body.trade_deadline : null) : league.trade_deadline;
+  const hours = (v, cur) => (v !== undefined && v !== '' ? Math.min(168, Math.max(0, Math.round(Number(v)) || 0)) : cur);
+  const review = hours(req.body.trade_review_hours, league.trade_review_hours);
+  const waiverHours = hours(req.body.waiver_hours, league.waiver_hours);
   let status = league.status;
   if (req.body.status === 'complete' && league.status === 'active') status = 'complete';
   if (req.body.status === 'active' && league.status === 'complete') status = 'active';
   run(
     `UPDATE leagues SET name = ?, season = ?, roster_size = ?, pick_seconds = ?, scoring = ?, status = ?,
-            regular_weeks = ?, playoff_teams = ?, round_by = ?, starters = ? WHERE id = ?`,
-    name, season, roster, pick, JSON.stringify(scoring), status, regularWeeks, playoffs, by, starters, league.id
+            regular_weeks = ?, playoff_teams = ?, round_by = ?, starters = ?,
+            trade_deadline = ?, trade_review_hours = ?, waiver_hours = ? WHERE id = ?`,
+    name, season, roster, pick, JSON.stringify(scoring), status, regularWeeks, playoffs, by, starters,
+    deadline, review, waiverHours, league.id
   );
   // A new season length or round type means a new head-to-head schedule.
   if ((regularWeeks !== league.regular_weeks || by !== league.round_by) && ['active', 'complete'].includes(league.status)) {
@@ -954,12 +969,19 @@ app.post('/api/leagues/:id/transactions', needUser, wrap((req) => {
   const dropId = req.body.drop_id ? Number(req.body.drop_id) : null;
   const now = new Date().toISOString();
   return tx(() => {
+    // A player on waivers can't be added outright: this becomes a claim that settles when his waivers clear.
+    if (addId && T.onWaivers(league.id)[addId]) {
+      const clears = T.claim(league, team, addId, dropId);
+      const name = one('SELECT name FROM athletes WHERE id = ?', addId).name;
+      return { ok: true, claim: true, clears_at: clears, message: `${name} is on waivers. Your claim is in.` };
+    }
     const roster = all('SELECT * FROM roster WHERE league_team_id = ? AND dropped_at IS NULL', team.id);
     let dropped = null, added = null;
     if (dropId) {
       const entry = roster.find((r) => r.athlete_id === dropId);
       if (!entry) throw httpError(400, 'That player is not on your roster.');
       run('UPDATE roster SET dropped_at = ? WHERE id = ?', now, entry.id);
+      T.putOnWaivers(league, dropId, now);
       dropped = one('SELECT name FROM athletes WHERE id = ?', dropId).name;
     }
     if (addId) {
@@ -975,6 +997,64 @@ app.post('/api/leagues/:id/transactions', needUser, wrap((req) => {
     if (!added && !dropped) throw httpError(400, 'Pick a player to add or drop.');
     F.log(league.id, `${team.name}${added ? ` added ${added}` : ''}${added && dropped ? ' and' : ''}${dropped ? ` dropped ${dropped}` : ''}`, 'move');
     return { ok: true };
+  });
+}));
+
+app.delete('/api/leagues/:id/claims/:claimId', needUser, wrap((req) => {
+  const league = loadLeague(req);
+  const team = one('SELECT * FROM league_teams WHERE league_id = ? AND user_id = ?', league.id, req.user.id);
+  const r = run(`UPDATE waiver_claims SET status = 'cancelled', decided_at = ? WHERE id = ? AND league_team_id = ? AND status = 'pending'`,
+    new Date().toISOString(), Number(req.params.claimId), team?.id ?? -1);
+  if (!r.changes) throw httpError(404, 'Claim not found.');
+  return { ok: true };
+}));
+
+// ---------- Trades ----------
+
+app.post('/api/leagues/:id/trades', needUser, wrap((req) => {
+  const league = loadLeague(req);
+  const team = one('SELECT * FROM league_teams WHERE league_id = ? AND user_id = ?', league.id, req.user.id);
+  if (!team) throw httpError(403, 'You do not have a team in this league.');
+  const id = tx(() => T.propose(league, team, req.body.to_team_id, req.body.give, req.body.get, req.body.note));
+  tick(league.id); // bots answer right away
+  const t = one('SELECT status FROM trades WHERE id = ?', id);
+  return { ok: true, id, status: t.status };
+}));
+
+// accept / reject: the team receiving the offer. cancel: the team that made it.
+// veto / approve: the commissioner, while an accepted trade is under review.
+app.post('/api/leagues/:id/trades/:tradeId/:action', needUser, wrap((req) => {
+  const league = loadLeague(req);
+  const trade = one('SELECT * FROM trades WHERE id = ? AND league_id = ?', Number(req.params.tradeId), league.id);
+  if (!trade) throw httpError(404, 'Trade not found.');
+  const team = one('SELECT * FROM league_teams WHERE league_id = ? AND user_id = ?', league.id, req.user.id);
+  const commish = isCommish(req.user, league);
+  const action = req.params.action;
+  return tx(() => {
+    if (action === 'accept' || action === 'reject') {
+      if (trade.receiver_team_id !== team?.id) throw httpError(403, 'Only the team receiving this offer can answer it.');
+      if (trade.status !== 'pending') throw httpError(400, 'This offer is no longer open.');
+      if (action === 'reject') { T.close(trade, 'rejected'); return { ok: true, status: 'rejected' }; }
+      return { ok: true, status: T.accept(league, trade) };
+    }
+    if (action === 'cancel') {
+      if (trade.proposer_team_id !== team?.id && !commish) throw httpError(403, 'Only the team that made this offer can cancel it.');
+      if (trade.status !== 'pending') throw httpError(400, 'This offer is no longer open.');
+      T.close(trade, 'cancelled');
+      return { ok: true, status: 'cancelled' };
+    }
+    if (action === 'veto' || action === 'approve') {
+      if (!commish) throw httpError(403, 'Only the commissioner can review trades.');
+      if (trade.status !== 'review') throw httpError(400, 'This trade is not waiting for review.');
+      if (action === 'veto') {
+        T.close(trade, 'vetoed', 'The commissioner vetoed it.');
+        F.log(league.id, `The commissioner vetoed a trade between ${one('SELECT name FROM league_teams WHERE id = ?', trade.proposer_team_id).name} and ${one('SELECT name FROM league_teams WHERE id = ?', trade.receiver_team_id).name}`, 'trade');
+        return { ok: true, status: 'vetoed' };
+      }
+      T.validate(league, trade);
+      return { ok: true, status: T.execute(league, trade, new Date().toISOString()) };
+    }
+    throw httpError(404, 'Unknown trade action.');
   });
 }));
 

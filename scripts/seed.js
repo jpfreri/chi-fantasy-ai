@@ -146,7 +146,9 @@ for (const [sport, cfg] of Object.entries(leagues)) {
     sport, `ΧΛΦ ${s.name}`, cfg.season, s.rosterSize, cfg.state === 'drafting' ? 600 : 90,
     JSON.stringify(defaultScoring(sport)), users[0].id, F.defaultRegularWeeks(sport, 'game', cfg.playoffs), cfg.playoffs
   ).lastInsertRowid);
-  const members = cfg.state === 'setup' ? users.slice(0, 3) : users;
+  // Quinten's fantasy teams were removed at his request; his login stays.
+  const managers = users.filter((u) => u.name !== 'Quinten Talamantes');
+  const members = cfg.state === 'setup' ? managers.slice(0, 3) : managers;
   members.forEach((u, i) => {
     const name = teamNames[(i + leagueId) % teamNames.length];
     run('INSERT INTO league_teams (league_id, user_id, name, draft_slot) VALUES (?, ?, ?, ?)', leagueId, u.id, name, i + 1);

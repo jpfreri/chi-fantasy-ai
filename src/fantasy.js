@@ -783,7 +783,9 @@ function runBots(leagueId) {
           WHERE r.league_team_id = ? AND r.dropped_at IS NULL`,
         bot.id
       ).map((r) => ({ ...r, points: totals[r.athlete_id]?.points || 0 }));
-      const pool = rankFor(bot.bot, availableAthletes(league));
+      // Players on waivers need a claim, so bots stick to free agents.
+      const waived = require('./trades').onWaivers(league.id);
+      const pool = rankFor(bot.bot, availableAthletes(league).filter((a) => !waived[a.id]));
       if (!pool.length) continue;
       const want = pool[0];
       // Keep the player this bot likes least: lowest scorer for the winner, highest for the loser.
@@ -795,6 +797,7 @@ function runBots(leagueId) {
         log(league.id, `${bot.name} added ${want.name}`, 'move');
       } else if (cut && better) {
         run('UPDATE roster SET dropped_at = ? WHERE league_team_id = ? AND athlete_id = ? AND dropped_at IS NULL', at, bot.id, cut.athlete_id);
+        require('./trades').putOnWaivers(league, cut.athlete_id, at);
         addToRoster(league, bot.id, want.id, at, 'free agent');
         log(league.id, `${bot.name} added ${want.name} and dropped ${cut.name}`, 'move');
       }

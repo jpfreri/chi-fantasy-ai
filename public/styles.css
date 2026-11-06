@@ -284,3 +284,15 @@ tr.benchhead td { padding-top: 10px; text-transform: uppercase; letter-spacing: 
 .statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 10px 0; }
 .statgrid > div { background: #f7f8fb; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: grid; gap: 2px; }
 .statgrid strong { font-size: 1.15rem; }
+
+/* Trades & waivers */
+.trade { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.trade.pending, .trade.review { border-color: var(--accent); }
+.trade.rejected, .trade.cancelled, .trade.failed, .trade.vetoed { opacity: .7; }
+.tradecols { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; margin: 8px 0; }
+.tradecols .arrow { font-size: 1.3rem; color: var(--muted); }
+.trade .row { gap: 6px; }
+.badge.wv { background: #b45309; color: #fff; }
+label.check { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+label.check input { width: auto; margin: 0; }
+ol li.me { font-weight: 600; }

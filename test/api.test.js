@@ -319,3 +319,81 @@ test('lineups: only starters score, a full lineup needs a swap, and players lock
   const fa = lg.data.freeAgents[0];
   assert.ok('proj_avg' in fa && 'avg' in fa);
 });
+
+test('trades: offer, accept, commissioner review and veto, roster limits, deadline', async () => {
+  const team = await admin('POST', '/api/teams', { sport: 'basketball', name: 'Traders' });
+  await admin('POST', '/api/athletes/bulk', { sport: 'basketball', text: 'Hal, PG, Traders\nIvy, C, Traders\nJay, SF, Traders\nKim, PF, Traders\nLou, SG, Traders' });
+  const ath = Object.fromEntries((await admin('GET', '/api/sports/basketball')).data.athletes.map((a) => [a.name, a.id]));
+  const l = await admin('POST', '/api/leagues', { sport: 'basketball', name: 'Trade League', roster_size: 2, starters: 1, pick_seconds: 0 });
+  const id = l.data.id;
+  await bob('POST', `/api/leagues/${id}/join`, { name: 'Bobcats' });
+  await cal('POST', `/api/leagues/${id}/join`, { name: 'Cals' });
+  await admin('POST', `/api/leagues/${id}/order`, { team_ids: (await admin('GET', `/api/leagues/${id}`)).data.standings.sort((a, b) => a.user_id - b.user_id).map((t) => t.id) });
+  await admin('POST', `/api/leagues/${id}/draft/start`);
+  for (const [who, name] of [[bob, 'Hal'], [cal, 'Ivy'], [cal, 'Jay'], [bob, 'Kim']]) {
+    assert.equal((await who('POST', `/api/leagues/${id}/draft/pick`, { athlete_id: ath[name] })).status, 200);
+  }
+  let lg = await bob('GET', `/api/leagues/${id}`);
+  const calTeam = lg.data.standings.find((t) => t.name === 'Cals').id;
+  const names = (d) => d.myTeam.players.map((p) => p.name).sort().join(',');
+
+  const offer = await bob('POST', `/api/leagues/${id}/trades`, { to_team_id: calTeam, give: [ath.Hal], get: [ath.Ivy] });
+  assert.equal(offer.status, 200);
+  assert.equal((await bob('POST', `/api/leagues/${id}/trades/${offer.data.id}/accept`)).status, 403, 'you cannot accept your own offer');
+  const cl = await cal('GET', `/api/leagues/${id}`);
+  assert.equal(cl.data.trades[0].status, 'pending');
+  assert.deepEqual(cl.data.trades[0].gives.map((i) => i.name), ['Hal']);
+  assert.equal((await cal('POST', `/api/leagues/${id}/trades/${offer.data.id}/accept`)).data.status, 'review', 'accepted trades wait for league review');
+  assert.equal((await bob('POST', `/api/leagues/${id}/trades/${offer.data.id}/veto`)).status, 403, 'only the commissioner can veto');
+  assert.equal((await admin('POST', `/api/leagues/${id}/trades/${offer.data.id}/veto`)).data.status, 'vetoed');
+  assert.equal(names((await bob('GET', `/api/leagues/${id}`)).data), 'Hal,Kim', 'a vetoed trade changes nothing');
+
+  const again = await bob('POST', `/api/leagues/${id}/trades`, { to_team_id: calTeam, give: [ath.Hal], get: [ath.Ivy] });
+  await cal('POST', `/api/leagues/${id}/trades/${again.data.id}/accept`);
+  assert.equal((await admin('POST', `/api/leagues/${id}/trades/${again.data.id}/approve`)).data.status, 'done');
+  lg = await bob('GET', `/api/leagues/${id}`);
+  assert.equal(names(lg.data), 'Ivy,Kim');
+  assert.equal(names((await cal('GET', `/api/leagues/${id}`)).data), 'Hal,Jay');
+  assert.ok(lg.data.activity.some((a) => a.kind === 'trade' && /Trade: Bobcats sent Hal/.test(a.text)));
+
+  // No review period: the trade goes through on accept. Rosters can't go over the limit.
+  await admin('PUT', `/api/leagues/${id}`, { trade_review_hours: 0 });
+  const uneven = await bob('POST', `/api/leagues/${id}/trades`, { to_team_id: calTeam, give: [], get: [ath.Jay] });
+  assert.equal(uneven.status, 400);
+  assert.match(uneven.data.error, /over the 2-player limit/);
+  const quick = await bob('POST', `/api/leagues/${id}/trades`, { to_team_id: calTeam, give: [ath.Kim], get: [ath.Jay] });
+  assert.equal((await cal('POST', `/api/leagues/${id}/trades/${quick.data.id}/accept`)).data.status, 'done');
+
+  const yesterday = new Date(Date.now() - 86400000 * 2).toISOString().slice(0, 10);
+  await admin('PUT', `/api/leagues/${id}`, { trade_deadline: yesterday });
+  const late = await bob('POST', `/api/leagues/${id}/trades`, { to_team_id: calTeam, give: [ath.Jay], get: [ath.Hal] });
+  assert.equal(late.status, 400);
+  assert.match(late.data.error, /deadline/);
+  ids.tradeLeague = id; ids.tradeAth = ath; ids.tradeCal = calTeam;
+});
+
+test('waivers: a dropped player needs a claim, and the best waiver priority wins', async () => {
+  const id = ids.tradeLeague, ath = ids.tradeAth;
+  // Bob has Ivy and Jay; Cal has Hal and Kim.
+  assert.equal((await bob('POST', `/api/leagues/${id}/transactions`, { drop_id: ath.Jay })).status, 200);
+  let lg = await cal('GET', `/api/leagues/${id}`);
+  assert.ok(lg.data.freeAgents.find((a) => a.id === ath.Jay).waiver_until, 'Jay is on waivers');
+  assert.ok(lg.data.waivers.players.some((p) => p.athlete_id === ath.Jay));
+
+  const c = await cal('POST', `/api/leagues/${id}/transactions`, { add_id: ath.Jay, drop_id: ath.Kim });
+  assert.equal(c.data.claim, true, 'adding a player on waivers puts in a claim');
+  assert.equal((await bob('POST', `/api/leagues/${id}/transactions`, { add_id: ath.Jay })).data.claim, true);
+  lg = await cal('GET', `/api/leagues/${id}`);
+  assert.equal(lg.data.waivers.claims[0].status, 'pending');
+  const first = lg.data.waivers.order[0].team_id;
+
+  run('UPDATE waivers SET clears_at = ? WHERE league_id = ?', new Date(Date.now() - 1000).toISOString(), id);
+  lg = await cal('GET', `/api/leagues/${id}`);
+  const bobLg = await bob('GET', `/api/leagues/${id}`);
+  const winnerData = first === ids.tradeCal ? lg.data : bobLg.data;
+  const loserData = first === ids.tradeCal ? bobLg.data : lg.data;
+  assert.ok(winnerData.myTeam.players.some((p) => p.name === 'Jay'), 'the team with first waiver priority gets him');
+  assert.equal(loserData.waivers.claims[0].status, 'lost');
+  assert.ok(lg.data.activity.some((a) => /claimed Jay off waivers/.test(a.text)));
+  if (first === ids.tradeCal) assert.ok(lg.data.waivers.players.some((p) => p.athlete_id === ath.Kim), 'the player dropped for a claim goes on waivers too');
+});

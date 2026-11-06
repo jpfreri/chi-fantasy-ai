@@ -58,7 +58,9 @@ The league works like an ESPN fantasy league (modeled on the data the [espn-api]
 - **Standings.** Record, then head-to-head among tied teams, then points for, then points against (ESPN's order). Streaks (W3, L1), playoff seeds, and each team's adds/drops. A league records card shows the top and lowest scorer, most points against, and the best and worst round.
 - **Power rankings.** ESPN's formula: 80% two-step dominance (your wins plus the wins of the teams you beat), 15% average score, 5% average margin.
 - **Players.** Free agents list average and projected points and the next game. Player pages show total, average, projected average, % rostered, % started and the next game.
-- **Activity.** Filter the league log by adds and drops, draft, commissioner moves, or league news.
+- **Activity.** Filter the league log by adds and drops, trades, draft, commissioner moves, or league news.
+- **Trades.** On **Rosters**, press **Propose trade** on another team, tick the players each side gives, and add a note. The other team accepts or rejects it on **Trades & waivers**. An accepted trade waits out the review period (default 24 hours), when the commissioner can veto it or approve it early, then goes through. Rosters can't go over the limit, so an uneven trade needs an open spot. If a player in an open offer gets traded or dropped first, the offer falls through. No trades are offered or accepted after the trade deadline. Bots answer offers right away.
+- **Waivers.** A dropped player sits on waivers (default 24 hours). Teams put in a claim instead of adding him, with an optional player to drop. When his time is up, the claim from the team highest in the waiver order wins. The order is reverse standings (last place first), or reverse draft order before any round is final. The commissioner sets the trade deadline, review period and waiver period under **Scoring & settings** (0 hours turns either off).
 
 ### AI win predictions
 

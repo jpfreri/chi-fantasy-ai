@@ -168,6 +168,48 @@ addColumn('activity', 'kind', "TEXT NOT NULL DEFAULT 'league'");
 addColumn('users', 'email', 'TEXT');
 addColumn('users', 'google_sub', 'TEXT');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub ON users (google_sub) WHERE google_sub IS NOT NULL');
+// Trades and waivers, ESPN style. trade_deadline is the last day (Central time) trades can be made.
+// Accepted trades wait trade_review_hours for a commissioner veto; dropped players sit on waivers waiver_hours.
+addColumn('leagues', 'trade_deadline', 'TEXT');
+addColumn('leagues', 'trade_review_hours', 'INTEGER NOT NULL DEFAULT 24');
+addColumn('leagues', 'waiver_hours', 'INTEGER NOT NULL DEFAULT 24');
+db.exec(`CREATE TABLE IF NOT EXISTS trades (
+  id INTEGER PRIMARY KEY,
+  league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+  proposer_team_id INTEGER NOT NULL REFERENCES league_teams(id) ON DELETE CASCADE,
+  receiver_team_id INTEGER NOT NULL REFERENCES league_teams(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | review | done | rejected | cancelled | vetoed | failed
+  note TEXT,
+  reason TEXT,
+  created_at TEXT NOT NULL,
+  accepted_at TEXT,
+  process_at TEXT,
+  decided_at TEXT
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS trade_items (
+  trade_id INTEGER NOT NULL REFERENCES trades(id) ON DELETE CASCADE,
+  athlete_id INTEGER NOT NULL REFERENCES athletes(id) ON DELETE CASCADE,
+  from_team_id INTEGER NOT NULL REFERENCES league_teams(id) ON DELETE CASCADE
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS waivers (
+  id INTEGER PRIMARY KEY,
+  league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+  athlete_id INTEGER NOT NULL REFERENCES athletes(id) ON DELETE CASCADE,
+  dropped_at TEXT NOT NULL,
+  clears_at TEXT NOT NULL,
+  processed INTEGER NOT NULL DEFAULT 0
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS waiver_claims (
+  id INTEGER PRIMARY KEY,
+  league_id INTEGER NOT NULL REFERENCES leagues(id) ON DELETE CASCADE,
+  league_team_id INTEGER NOT NULL REFERENCES league_teams(id) ON DELETE CASCADE,
+  athlete_id INTEGER NOT NULL REFERENCES athletes(id) ON DELETE CASCADE,
+  drop_id INTEGER REFERENCES athletes(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'pending', -- pending | won | lost | cancelled
+  reason TEXT,
+  created_at TEXT NOT NULL,
+  decided_at TEXT
+)`);
 
 function tx(fn) {
   db.exec('BEGIN IMMEDIATE');
