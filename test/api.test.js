@@ -59,7 +59,7 @@ test('admin sets up teams, players and a game', async () => {
 });
 
 test('snake draft runs in order and enforces turns', async () => {
-  const l = await admin('POST', '/api/leagues', { sport: 'basketball', name: 'Test League', roster_size: 2, pick_seconds: 0 });
+  const l = await admin('POST', '/api/leagues', { sport: 'basketball', name: 'Test League', roster_size: 2, starters: 2, pick_seconds: 0 });
   ids.league = l.data.id;
   await bob('POST', `/api/leagues/${ids.league}/join`, { name: 'Bobcats' });
   await cal('POST', `/api/leagues/${ids.league}/join`, { name: 'Cals' });
@@ -272,4 +272,50 @@ test('Google sign-in creates or links an account and makes ADMIN_EMAILS admins',
   } finally {
     gs.close(); fake.close();
   }
+});
+
+test('lineups: only starters score, a full lineup needs a swap, and players lock at game time', async () => {
+  const team = await admin('POST', '/api/teams', { sport: 'basketball', name: 'Night Owls' });
+  await admin('POST', '/api/athletes/bulk', { sport: 'basketball', text: 'Finn, PG, Night Owls\nGus, C, Night Owls' });
+  const ath = Object.fromEntries((await admin('GET', '/api/sports/basketball')).data.athletes.map((a) => [a.name, a.id]));
+  const l = await admin('POST', '/api/leagues', { sport: 'basketball', name: 'Lineup League', roster_size: 2, starters: 1, pick_seconds: 0 });
+  const id = l.data.id;
+  await bob('POST', `/api/leagues/${id}/join`, { name: 'Bobcats' });
+  await cal('POST', `/api/leagues/${id}/join`, { name: 'Cals' });
+  await admin('POST', `/api/leagues/${id}/draft/start`);
+  for (const [who, name] of [[bob, 'Finn'], [cal, 'Ann'], [cal, 'Ben'], [bob, 'Gus']]) {
+    assert.equal((await who('POST', `/api/leagues/${id}/draft/pick`, { athlete_id: ath[name] })).status, 200);
+  }
+  let lg = await bob('GET', `/api/leagues/${id}`);
+  const slot = (d, name) => d.myTeam.players.find((p) => p.name === name).starter;
+  assert.equal(lg.data.starters, 1);
+  assert.equal(slot(lg.data, 'Finn'), true, 'first pick fills the open starting spot');
+  assert.equal(slot(lg.data, 'Gus'), false, 'the rest go to the bench');
+
+  // Two nights ago Finn started and Gus sat. Gus's 10 points don't count for Bob.
+  const past = new Date(Date.now() - 2 * 86400000).toISOString();
+  const g = await admin('POST', '/api/games', { sport: 'basketball', home_team_id: team.data.id, away_team_id: ids.t2, starts_at: past, status: 'final' });
+  await admin('PUT', `/api/games/${g.data.id}/stats`, { rows: [{ athlete_id: ath.Finn, stats: { pts: 4 } }, { athlete_id: ath.Gus, stats: { pts: 10 } }] });
+  lg = await bob('GET', `/api/leagues/${id}`);
+  assert.equal(lg.data.myTeam.points, 4);
+  assert.equal(lg.data.myTeam.players.find((p) => p.name === 'Gus').points, 10, 'bench points still show on the player');
+
+  const full = await bob('POST', `/api/leagues/${id}/lineup`, { athlete_id: ath.Gus, starter: true });
+  assert.equal(full.status, 400, 'a full lineup needs a starter to swap out');
+  assert.equal((await bob('POST', `/api/leagues/${id}/lineup`, { athlete_id: ath.Gus, starter: true, swap_id: ath.Finn })).status, 200);
+  lg = await bob('GET', `/api/leagues/${id}`);
+  assert.equal(slot(lg.data, 'Gus'), true);
+  assert.equal(slot(lg.data, 'Finn'), false);
+  assert.equal(lg.data.myTeam.points, 4, 'a lineup change never rewrites past nights');
+
+  // Ann's team played today, so she's locked until tomorrow.
+  const locked = await cal('POST', `/api/leagues/${id}/lineup`, { athlete_id: ath.Ann, starter: false });
+  assert.equal(locked.status, 400);
+  assert.match(locked.data.error, /locked/);
+
+  // ESPN extras come back with the league.
+  assert.ok(lg.data.power.length === 2 && lg.data.power[0].rank === 1);
+  assert.ok(lg.data.standings.every((t) => 'streak' in t && 'adds' in t));
+  const fa = lg.data.freeAgents[0];
+  assert.ok('proj_avg' in fa && 'avg' in fa);
 });

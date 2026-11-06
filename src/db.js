@@ -152,6 +152,18 @@ addColumn('users', 'bot', 'TEXT');
 addColumn('league_teams', 'bot_checked_at', 'INTEGER');
 // How fantasy rounds are made: 'game' = one round per day Chi plays, 'week' = one per intramural week.
 addColumn('leagues', 'round_by', "TEXT NOT NULL DEFAULT 'game'");
+// Lineups: each row moves one roster stint to the starting lineup or the bench from `at` on.
+db.exec(`CREATE TABLE IF NOT EXISTS lineup_moves (
+  id INTEGER PRIMARY KEY,
+  roster_id INTEGER NOT NULL REFERENCES roster(id) ON DELETE CASCADE,
+  starter INTEGER NOT NULL,
+  at TEXT NOT NULL
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS lineup_moves_roster ON lineup_moves (roster_id, at)');
+// Starting lineup size. Null means the roster size minus one bench spot.
+addColumn('leagues', 'starters', 'INTEGER');
+// Activity type, for filtering the league log: draft, move, commish, league.
+addColumn('activity', 'kind', "TEXT NOT NULL DEFAULT 'league'");
 // Google sign-in: the verified Google email and the account's stable Google id.
 addColumn('users', 'email', 'TEXT');
 addColumn('users', 'google_sub', 'TEXT');

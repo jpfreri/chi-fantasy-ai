@@ -131,7 +131,7 @@ const routes = [
   [/^#\/game\/(\d+)(?:\/(edit))?$/, pageGame],
   [/^#\/player\/(\d+)$/, pagePlayer],
   [/^#\/league\/(\d+)\/draft$/, pageDraft],
-  [/^#\/league\/(\d+)(?:\/(\w+))?(?:\/(\d+))?$/, pageLeague],
+  [/^#\/league\/(\d+)(?:\/(\w+))?(?:\/(\w+))?$/, pageLeague],
   [/^#\/admin(?:\/(\w+))?(?:\/(\w+))?$/, pageAdmin],
   [/^#\/account$/, pageAccount],
   [/^#?\/?$/, pageHome],
@@ -665,6 +665,12 @@ async function pageGame(id, mode, extra = []) {
 
 // ---------- Player ----------
 
+// "Tue 8:30 PM vs Kappa A", or a tag when his team has nothing left on the schedule.
+function nextGameText(g) {
+  if (!g) return 'No game scheduled';
+  return `${g.status === 'live' ? 'Live now' : fmtDate(g.starts_at)} vs ${esc(g.opponent)}`;
+}
+
 async function pagePlayer(id) {
   const d = await GET(`/api/athletes/${id}`);
   const { athlete: a, sport: s } = d;
@@ -675,7 +681,15 @@ async function pagePlayer(id) {
     <div class="card">
       <h1>${esc(a.name)} ${a.active ? '' : '<span class="badge">inactive</span>'}</h1>
       <p class="muted">${esc(a.position || 'No position')} · ${esc(a.team_name || 'No team')}</p>
-      <div class="row"><span>Season fantasy points (default scoring):</span>${pts(total)}</div>
+      <div class="statgrid">
+        <div><span class="muted small">Total pts</span><strong>${pts(d.card.total)}</strong></div>
+        <div><span class="muted small">Avg / game</span><strong>${d.card.avg.toFixed(1)}</strong></div>
+        <div><span class="muted small">Proj avg</span><strong>${d.card.proj_avg.toFixed(1)}</strong></div>
+        <div><span class="muted small">% rostered</span><strong>${d.card.pct_rostered ?? '–'}${d.card.pct_rostered != null ? '%' : ''}</strong></div>
+        <div><span class="muted small">% started</span><strong>${d.card.pct_started ?? '–'}${d.card.pct_started != null ? '%' : ''}</strong></div>
+        <div><span class="muted small">Next game</span><strong class="small">${nextGameText(d.card.next_game)}</strong></div>
+      </div>
+      <p class="muted small">Points use the default scoring. Projected average is his average pulled toward his tier's average until he has a few games.</p>
       ${d.owners.length ? `<p>Owned in: ${d.owners.map((o) => `<a href="#/league/${o.league_id}">${esc(o.team_name)}</a> <span class="muted small">(${esc(o.league_name)})</span>`).join(', ')}</p>` : '<p class="muted">Free agent in every league.</p>'}
     </div>
     <div class="card table-wrap"><h2>Game log</h2>
@@ -695,9 +709,11 @@ async function pageLeague(id, tab, weekParam) {
   const byId = Object.fromEntries(d.standings.map((t) => [t.id, t]));
   const R = L.regular_weeks;
   const unit = d.roundBy === 'week' ? 'Week' : 'Round';
-  const tabs = [['matchups', 'Matchups'], ['standings', 'Standings'], ['playoffs', 'Playoffs'], ['rosters', 'Rosters'],
+  // The third part of the URL: a round number on the matchups tab, a filter on the activity tab.
+  const tabArg = weekParam;
+  const tabs = [['matchups', 'Matchups'], ['standings', 'Standings'], ['power', 'Power rankings'], ['playoffs', 'Playoffs'], ['rosters', 'Rosters'],
     ['players', 'Free agents'], ['scoring', 'Scoring & settings'], ['activity', 'Activity']];
-  if (!d.playoffs) tabs.splice(2, 1);
+  if (!d.playoffs) tabs.splice(tabs.findIndex(([k]) => k === 'playoffs'), 1);
   if (L.status === 'setup' || L.status === 'drafting') tabs.splice(0, tabs.length - 2, ['setup', L.status === 'setup' ? 'Draft setup' : 'Teams']);
   tab = tab && tabs.some(([k]) => k === tab) ? tab : tabs[0][0];
   const week = Math.min(d.lastWeek, Math.max(1, Number(weekParam) || d.currentWeek || 1));
@@ -736,7 +752,8 @@ async function pageLeague(id, tab, weekParam) {
           <ul class="small">
             <li>Snake draft: ${d.standings.length || 'N'} teams, ${L.roster_size} rounds. Order flips every round.</li>
             <li>${L.pick_seconds ? `${L.pick_seconds} seconds per pick. If the clock runs out, the best available player is picked for you.` : 'No pick clock.'}</li>
-            <li>Every player on your roster scores. After the draft you can add and drop free agents.</li>
+            <li>You start ${d.starters} of your ${L.roster_size} players. Only starters score; the bench is backup. A player locks once his Chi game starts that night.</li>
+            <li>After the draft you can add and drop free agents. A new player fills an open starting spot, or goes to the bench.</li>
             <li>Head-to-head: you play a different team each ${d.roundBy === 'week' ? 'week' : 'Chi game night'} for ${R} rounds. Win the round by scoring more fantasy points.</li>
             <li>${d.playoffs ? `The top ${d.playoffs.size} teams make the playoffs (${unit.toLowerCase()} ${R + 1}${d.playoffs.size === 4 ? ` and ${R + 2}` : ''}). Ties go to the higher seed.` : 'No playoffs: the best record wins.'}</li>
             <li>🤖 Every matchup gets a win prediction from players' past fantasy points.</li>
@@ -748,16 +765,28 @@ async function pageLeague(id, tab, weekParam) {
     standings: () => {
       const cut = d.playoffs?.size || 0;
       return `<div class="card table-wrap"><table>
-        <thead><tr><th>#</th><th>Team</th><th class="num">W-L-T</th><th class="num">PF</th><th class="num">PA</th><th class="num">Season pts</th></tr></thead>
+        <thead><tr><th>#</th><th>Team</th><th class="num">W-L-T</th><th class="num">Strk</th><th class="num">PF</th><th class="num">PA</th><th class="num" title="Adds / drops">Moves</th></tr></thead>
         <tbody>${d.standings.map((t) => `<tr class="${t.user_id === S.me.id ? 'me' : ''} ${t.rank === cut && cut < d.standings.length ? 'cutline' : ''}">
-          <td>${t.rank}</td><td><strong>${esc(t.name)}</strong> ${BOT_BADGE(t)}<div class="muted small">${esc(t.owner_name)}</div></td>
+          <td>${t.rank}</td><td><strong>${esc(t.name)}</strong> ${BOT_BADGE(t)}${t.seed ? ` <span class="badge seedb">x-${t.seed}</span>` : ''}<div class="muted small">${esc(t.owner_name)}</div></td>
           <td class="num"><strong>${t.w}-${t.l}${t.t ? `-${t.t}` : ''}</strong></td>
+          <td class="num ${t.streak?.[0] === 'W' ? 'good' : t.streak?.[0] === 'L' ? 'bad' : ''}">${t.streak || '–'}</td>
           <td class="num">${t.pf.toFixed(1)}</td><td class="num">${t.pa.toFixed(1)}</td>
-          <td class="num">${pts(t.points)}</td></tr>`).join('')}</tbody></table>
-        <p class="muted small" style="margin-bottom:0">Ranked by record, then season points. PF and PA count finished head-to-head rounds only.
-          ${cut ? `Teams above the line make the playoffs.` : ''}</p></div>
+          <td class="num">${t.adds}/${t.drops}</td></tr>`).join('')}</tbody></table>
+        <p class="muted small" style="margin-bottom:0">Ranked like ESPN: record, then head-to-head among tied teams, then points for, then points against. PF and PA count finished head-to-head ${unit.toLowerCase()}s only.
+          ${cut ? `x = playoff seed if the season ended today. Teams above the line make the playoffs.` : ''}</p></div>
+        ${recordsCard()}
         ${myTeam ? rosterCard(myTeam, true) : ''}`;
     },
+
+    power: () => d.power.length ? `<div class="card table-wrap"><table>
+        <thead><tr><th>#</th><th>Team</th><th class="num">Power</th><th class="num" title="Wins plus the wins of the teams you beat">Dominance</th><th class="num">Avg score</th><th class="num">Avg margin</th><th class="num">Record</th></tr></thead>
+        <tbody>${d.power.map((p) => { const t = byId[p.team_id]; return `<tr class="${t?.user_id === S.me.id ? 'me' : ''}">
+          <td>${p.rank}</td><td><strong>${esc(p.name)}</strong> ${t ? BOT_BADGE(t) : ''}<div class="muted small">${esc(p.owner_name)}</div></td>
+          <td class="num"><strong>${p.power.toFixed(2)}</strong></td><td class="num">${p.dominance}</td>
+          <td class="num">${p.avg_score.toFixed(1)}</td><td class="num ${p.avg_margin > 0 ? 'good' : p.avg_margin < 0 ? 'bad' : ''}">${p.avg_margin > 0 ? '+' : ''}${p.avg_margin.toFixed(1)}</td>
+          <td class="num">${t ? `${t.w}-${t.l}${t.t ? `-${t.t}` : ''}` : ''}</td></tr>`; }).join('')}</tbody></table>
+        <p class="muted small" style="margin-bottom:0">ESPN's formula: 80% two-step dominance (your wins, plus the wins of the teams you beat), 15% average score, 5% average margin.</p></div>`
+      : '<div class="card empty">Power rankings start after the first finished round.</div>',
 
     matchups: () => {
       const games = gamesInWeek(week);
@@ -801,11 +830,12 @@ async function pageLeague(id, tab, weekParam) {
         ${L.status !== 'active' ? '<p class="muted">Free agency is closed.</p>' : myTeam ? `<p class="muted small">${full
           ? 'Your roster is full, so adding a player means choosing someone to drop.'
           : `You have ${L.roster_size - myTeam.players.length} open roster spot(s).`}</p>` : '<p class="muted small">You are not in this league.</p>'}
-        <div class="table-wrap"><table><thead><tr><th>Player</th><th>Pos</th><th>Team</th><th class="num">GP</th><th class="num">Pts</th><th></th></tr></thead>
+        <div class="table-wrap"><table><thead><tr><th>Player</th><th>Pos</th><th>Team</th><th>Next game</th><th class="num">GP</th><th class="num">Pts</th><th class="num">Avg</th><th class="num">Proj</th><th></th></tr></thead>
         <tbody>${d.freeAgents.map((a) => `<tr><td><a href="#/player/${a.id}">${esc(a.name)}</a></td><td>${esc(a.position || '')}</td>
-          <td>${esc(a.team_name || '')}</td><td class="num">${a.games}</td><td class="num">${pts(a.points)}</td>
+          <td>${esc(a.team_name || '')}</td><td class="small muted">${nextGameText(a.next_game)}</td><td class="num">${a.games}</td><td class="num">${pts(a.points)}</td>
+          <td class="num">${a.avg.toFixed(1)}</td><td class="num"><strong>${a.proj_avg.toFixed(1)}</strong></td>
           <td class="num">${myTeam && L.status === 'active' ? `<button class="small" data-act="add" data-id="${a.id}" data-name="${esc(a.name)}">Add</button>` : ''}</td></tr>`).join('') ||
-          '<tr><td colspan="6" class="empty">No free agents.</td></tr>'}</tbody></table></div></div>`;
+          '<tr><td colspan="9" class="empty">No free agents.</td></tr>'}</tbody></table></div></div>`;
     },
 
     scoring: () => `<form class="card" data-form="scoring">
@@ -821,6 +851,7 @@ async function pageLeague(id, tab, weekParam) {
         <div class="field"><label>Season</label><input name="season" value="${esc(L.season || '')}"></div>
         <div class="field"><label>Seconds per pick</label><input name="pick_seconds" type="number" min="0" value="${L.pick_seconds}"></div>
         ${L.status === 'setup' ? `<div class="field"><label>Players per team</label><input name="roster_size" type="number" min="1" max="20" value="${L.roster_size}"></div>` : ''}
+        <div class="field"><label>Starters (the rest sit on the bench)</label><input name="starters" type="number" min="1" max="${L.roster_size}" value="${d.starters}"></div>
         <div class="field"><label>Rounds</label><select name="round_by">${options([{ id: 'game', name: 'One per Chi game night' }, { id: 'week', name: 'One per intramural week' }], L.round_by)}</select></div>
         <div class="field"><label>Regular season rounds</label><input name="regular_weeks" type="number" min="1" max="30" value="${R}"></div>
         <div class="field"><label>Playoff teams</label><select name="playoff_teams">${options([{ id: 0, name: 'No playoffs' }, { id: 2, name: 'Top 2 (final)' }, { id: 4, name: 'Top 4 (semis + final)' }], L.playoff_teams)}</select></div>
@@ -832,7 +863,13 @@ async function pageLeague(id, tab, weekParam) {
         ${S.me.is_admin ? '<button type="button" class="danger" data-act="delLeague">Delete league</button>' : ''}</div>
     </form>` : ''}`,
 
-    activity: () => `<div class="card"><ul class="feed">${d.activity.map((a) => `<li>${esc(a.text)} <span class="muted small">· ${fmtDate(a.created_at)}</span></li>`).join('') || '<li class="empty">Nothing yet.</li>'}</ul></div>`,
+    activity: () => {
+      const kinds = [['all', 'All'], ['move', 'Adds & drops'], ['draft', 'Draft'], ['commish', 'Commissioner'], ['league', 'League']];
+      const k = kinds.some(([x]) => x === tabArg) ? tabArg : 'all';
+      const rows = d.activity.filter((a) => k === 'all' || a.kind === k);
+      return `<div class="weekpills">${kinds.map(([x, label]) => `<a href="#/league/${L.id}/activity/${x}" class="${x === k ? 'on' : ''}">${label}</a>`).join('')}</div>
+        <div class="card"><ul class="feed">${rows.map((a) => `<li>${esc(a.text)} <span class="muted small">· ${fmtDate(a.created_at)}</span></li>`).join('') || '<li class="empty">Nothing yet.</li>'}</ul></div>`;
+    },
   };
 
   render(`
@@ -891,27 +928,49 @@ async function pageLeague(id, tab, weekParam) {
         Drop <strong>${esc(p.name)}</strong> <span class="muted small">${esc(p.position || '')} · ${Number(p.points).toFixed(1)} pts</span></button>`).join('')}</div>`);
   };
   actions.confirmAdd = (el) => addPlayer(el.dataset.add, el.dataset.name, el.dataset.drop);
+  const lineup = async (body) => {
+    await POST(`/api/leagues/${L.id}/lineup`, body);
+    closeDialog();
+    reload();
+  };
+  actions.bench = (el) => lineup({ athlete_id: el.dataset.id, starter: false });
+  actions.start = (el) => {
+    const starters = myTeam.players.filter((p) => p.starter);
+    if (starters.length < d.starters) return lineup({ athlete_id: el.dataset.id, starter: true });
+    const free = starters.filter((p) => !p.locked);
+    openDialog(`<h2>Start ${esc(el.dataset.name)}</h2><p class="muted">Your lineup is full. Pick a starter to move to the bench.</p>
+      <div class="stack">${free.map((p) => `<button class="secondary droppick" data-act="swap" data-id="${esc(el.dataset.id)}" data-swap="${p.athlete_id}">
+        Bench <strong>${esc(p.name)}</strong> <span class="muted small">${esc(p.position || '')} · ${nextGameText(p.next_game)}</span></button>`).join('') || '<p class="empty">Every starter is locked tonight.</p>'}</div>`);
+  };
+  actions.swap = (el) => lineup({ athlete_id: el.dataset.id, starter: true, swap_id: el.dataset.swap });
+  // ESPN-style box score: each side's starters, then bench, with projected and actual points.
   actions.detail = (el) => {
     const w = Number(el.dataset.week);
-    const col = (t) => {
-      const got = t.byWeek[w] || {};
-      const rows = [...Object.values(got)];
-      for (const p of t.players) if (!got[p.athlete_id]) rows.push({ ...p, points: 0 });
-      rows.sort((a, b) => b.points - a.points);
-      const total = rows.reduce((sum, r) => sum + r.points, 0);
-      return `<div><h3>${esc(t.name)} <span class="grow"></span></h3><table><tbody>${rows.map((r) => `<tr>
-        <td><a href="#/player/${r.athlete_id}">${esc(r.name)}</a> <span class="muted small">${esc(r.position || '')}${r.dropped ? ' · dropped' : ''}</span></td>
-        <td class="num">${pts(r.points)}</td></tr>`).join('') || '<tr><td class="empty">No players.</td></tr>'}
-        <tr><td><strong>Total</strong></td><td class="num">${pts(total)}</td></tr></tbody></table></div>`;
-    };
     const all = [...d.matchups, ...(d.playoffs?.rounds.flatMap((r) => r.games) || [])];
     const m = all.find((g) => g.week === w && g.home_team_id === Number(el.dataset.h) && g.away_team_id === Number(el.dataset.a));
     const p = m?.prediction;
+    const col = (t, lineupRows, projShown) => {
+      const got = t.byWeek[w] || {};
+      const proj = Object.fromEntries((lineupRows || []).map((x) => [x.athlete_id, x]));
+      const rows = Object.values(got).map((r) => ({ ...r, starter: !r.bench, proj: proj[r.athlete_id]?.proj }));
+      const seen = new Set(rows.map((r) => `${r.athlete_id}:${r.starter}`));
+      for (const x of lineupRows || t.players.map((q) => ({ ...q, proj: null }))) {
+        if (!seen.has(`${x.athlete_id}:${!!x.starter}`)) rows.push({ ...x, points: 0, proj: x.proj });
+      }
+      rows.sort((a, b) => b.starter - a.starter || b.points - a.points || (b.proj || 0) - (a.proj || 0));
+      const total = rows.filter((r) => r.starter).reduce((sum, r) => sum + r.points, 0);
+      const tr = (r) => `<tr class="${r.starter ? '' : 'bench'}"><td class="slot">${r.starter ? 'S' : 'BN'}</td>
+        <td><a href="#/player/${r.athlete_id}">${esc(r.name)}</a> <span class="muted small">${esc(r.position || '')}${r.dropped ? ' · dropped' : ''}</span></td>
+        <td class="num muted">${r.proj != null ? Number(r.proj).toFixed(1) : ''}</td><td class="num">${pts(r.points)}</td></tr>`;
+      return `<div><h3>${esc(t.name)}</h3><table><thead><tr><th>Slot</th><th>Player</th><th class="num">Proj</th><th class="num">Pts</th></tr></thead><tbody>
+        ${rows.map(tr).join('') || '<tr><td colspan="4" class="empty">No players.</td></tr>'}
+        <tr><td></td><td><strong>Total</strong> <span class="muted small">(starters)</span></td><td class="num muted">${projShown != null ? projShown.toFixed(1) : ''}</td><td class="num"><strong>${pts(total)}</strong></td></tr></tbody></table></div>`;
+    };
     const keys = (t, list) => list?.length ? `<p class="small"><strong>${esc(t.name)}</strong>: ${list.map((k) => `${esc(k.name)} (${k.proj.toFixed(1)})`).join(', ')}</p>` : '';
     const why = p?.basis === 'stats' ? `<div class="card" style="margin-top:12px"><h3>🤖 Why the AI picked it</h3>
-      <p class="muted small">Projected ${p.away_proj.toFixed(1)} (${esc(byId[el.dataset.a].name)}) vs ${p.home_proj.toFixed(1)} (${esc(byId[el.dataset.h].name)}). Each player's average fantasy points per game, pulled toward the club average for their tier until they have a few games, times the Chi games their team plays in the round${p.pregame ? '. Uses only games played before the round.' : ', plus the points already scored.'}</p>
+      <p class="muted small">Projected ${p.away_proj.toFixed(1)} (${esc(byId[el.dataset.a].name)}) vs ${p.home_proj.toFixed(1)} (${esc(byId[el.dataset.h].name)}), starters only. Each player's average fantasy points per game, pulled toward the club average for their tier until they have a few games, times the Chi games their team plays in the round${p.pregame ? '. Uses only games played before the round.' : ', plus the points already scored.'}</p>
       ${keys(byId[el.dataset.a], p.away_key)}${keys(byId[el.dataset.h], p.home_key)}</div>` : '';
-    openDialog(`<h2>${esc(weekName(w))}</h2><div class="grid two">${col(byId[el.dataset.a])}${col(byId[el.dataset.h])}</div>${why}`);
+    openDialog(`<h2>${esc(weekName(w))} box score</h2><div class="grid two">${col(byId[el.dataset.a], p?.away_lineup, p?.away_proj)}${col(byId[el.dataset.h], p?.home_lineup, p?.home_proj)}</div>${why}`);
   };
   actions.finish = async () => {
     if (!confirm('End the season and crown the champion?')) return;
@@ -924,6 +983,19 @@ async function pageLeague(id, tab, weekParam) {
     await DEL(`/api/leagues/${L.id}`);
     location.hash = `#/sport/${L.sport}/leagues`;
   };
+
+  function recordsCard() {
+    const r = d.records;
+    if (!r) return '';
+    const row = (label, name, value) => `<tr><td class="muted">${label}</td><td><strong>${esc(name)}</strong></td><td class="num">${value}</td></tr>`;
+    return `<div class="card"><h2>League records</h2><table><tbody>
+      ${row('Top scorer (PF)', r.top_scorer.name, Number(r.top_scorer.value).toFixed(1))}
+      ${row('Lowest scorer (PF)', r.least_scorer.name, Number(r.least_scorer.value).toFixed(1))}
+      ${row('Most points against', r.most_against.name, Number(r.most_against.value).toFixed(1))}
+      ${row(`Best ${unit.toLowerCase()}`, `${r.best_round.name} · ${weekName(r.best_round.week)}`, Number(r.best_round.points).toFixed(1))}
+      ${row(`Worst ${unit.toLowerCase()}`, `${r.worst_round.name} · ${weekName(r.worst_round.week)}`, Number(r.worst_round.points).toFixed(1))}
+    </tbody></table></div>`;
+  }
 
   function matchCard(m) {
     const h = byId[m.home_team_id], a = byId[m.away_team_id];
@@ -962,16 +1034,31 @@ async function pageLeague(id, tab, weekParam) {
   }
 
   function rosterCard(t, mine) {
-    const canDrop = mine && L.status === 'active';
+    const canEdit = mine && L.status === 'active';
+    const settled = L.status !== 'setup' && L.status !== 'drafting';
+    const row = (p) => `<tr class="${p.starter || !settled ? '' : 'bench'}">
+      <td class="slot">${settled ? (p.starter ? 'S' : 'BN') : ''}</td>
+      <td><a href="#/player/${p.athlete_id}">${esc(p.name)}</a>${p.locked ? ' <span title="His game has started tonight">🔒</span>' : ''}
+        <div class="muted small">${[p.position, p.team_name].filter(Boolean).map(esc).join(' · ')}${settled && L.status === 'active' ? ` · ${nextGameText(p.next_game)}` : ''}</div></td>
+      <td class="num">${pts(p.points)}</td>
+      ${canEdit ? `<td class="num nowrap">${p.locked ? '' : p.starter
+        ? `<button class="small secondary" data-act="bench" data-id="${p.athlete_id}">Bench</button>`
+        : `<button class="small" data-act="start" data-id="${p.athlete_id}" data-name="${esc(p.name)}">Start</button>`}
+        <button class="small danger" data-act="drop" data-id="${p.athlete_id}" data-name="${esc(p.name)}">Drop</button></td>` : ''}</tr>`;
+    const starters = settled ? t.players.filter((p) => p.starter) : t.players;
+    const bench = settled ? t.players.filter((p) => !p.starter) : [];
+    const open = settled ? Math.max(0, d.starters - starters.length) : 0;
     return `<div class="card">
       <div class="row"><h3 style="margin:0">${esc(t.name)}</h3><span class="grow"></span>${pts(t.points)}</div>
-      <div class="muted small" style="margin-bottom:8px">${esc(t.owner_name)} · ${L.status === 'setup' || L.status === 'drafting' ? '' : `${t.w}-${t.l}${t.t ? `-${t.t}` : ''} · Rank ${t.rank}`}</div>
-      <table><tbody>${t.players.map((p) => `<tr><td><a href="#/player/${p.athlete_id}">${esc(p.name)}</a>
-        <div class="muted small">${[p.position, p.team_name].filter(Boolean).map(esc).join(' · ')}</div></td>
-        <td class="num">${pts(p.points)}</td>
-        ${canDrop ? `<td class="num"><button class="small danger" data-act="drop" data-id="${p.athlete_id}" data-name="${esc(p.name)}">Drop</button></td>` : ''}</tr>`).join('') ||
-        '<tr><td class="empty">No players yet.</td></tr>'}</tbody></table></div>`;
+      <div class="muted small" style="margin-bottom:8px">${esc(t.owner_name)} · ${settled ? `${t.w}-${t.l}${t.t ? `-${t.t}` : ''} · Rank ${t.rank}${t.streak ? ` · ${t.streak}` : ''}` : ''}</div>
+      <table><tbody>${starters.map(row).join('')}
+        ${Array.from({ length: open }, () => `<tr><td class="slot">S</td><td class="muted">Empty starting spot</td><td></td>${canEdit ? '<td></td>' : ''}</tr>`).join('')}
+        ${bench.length ? `<tr class="benchhead"><td colspan="${canEdit ? 4 : 3}" class="muted small">Bench</td></tr>` : ''}
+        ${bench.map(row).join('')}
+        ${t.players.length ? '' : '<tr><td class="empty">No players yet.</td></tr>'}</tbody></table>
+      ${settled ? '<p class="muted small" style="margin:6px 0 0">Player points include bench nights; the team total counts starters only.</p>' : ''}</div>`;
   }
+
 }
 
 // ---------- Draft room ----------

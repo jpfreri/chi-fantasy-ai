@@ -136,16 +136,119 @@ function defaultRegularWeeks(sport, roundBy = 'game', playoffTeams = 4) {
   return n ? Math.max(1, n - playoffRounds(playoffTeams)) : 5;
 }
 
-// Standings: each team's points from its players, counting only games that started while rostered.
+// ---------- Lineups ----------
+
+function starterLimit(league) {
+  return league.starters || Math.max(1, league.roster_size - 1);
+}
+
+// Lineup history for a league: roster id -> moves, oldest first.
+function lineupHistory(leagueId) {
+  const out = {};
+  for (const m of all(
+    `SELECT m.roster_id, m.starter, m.at FROM lineup_moves m JOIN roster r ON r.id = m.roster_id
+      WHERE r.league_id = ? ORDER BY m.at, m.id`,
+    leagueId
+  )) (out[m.roster_id] ||= []).push(m);
+  return out;
+}
+
+// Whether a roster stint was in the starting lineup at time `at` (no time = now). A stint with no
+// lineup moves yet (rosters from before lineups existed) counts as starting.
+function starterAt(history, rosterId, at = new Date().toISOString()) {
+  let starter = true;
+  for (const m of history[rosterId] || []) {
+    if (m.at > at) break;
+    starter = !!m.starter;
+  }
+  return starter;
+}
+
+function setSlot(rosterId, starter, at = new Date().toISOString()) {
+  run('INSERT INTO lineup_moves (roster_id, starter, at) VALUES (?, ?, ?)', rosterId, starter ? 1 : 0, at);
+}
+
+function currentStarters(league, teamId, history = lineupHistory(league.id)) {
+  return all('SELECT id FROM roster WHERE league_team_id = ? AND dropped_at IS NULL', teamId)
+    .filter((r) => starterAt(history, r.id)).length;
+}
+
+// Puts a player on a fantasy team. Like ESPN, he goes into an open starting spot if there is one,
+// otherwise to the bench.
+function addToRoster(league, teamId, athleteId, at, how) {
+  const open = currentStarters(league, teamId) < starterLimit(league);
+  const id = Number(run(
+    'INSERT INTO roster (league_id, league_team_id, athlete_id, acquired_at, how) VALUES (?, ?, ?, ?, ?)',
+    league.id, teamId, athleteId, at, how
+  ).lastInsertRowid);
+  setSlot(id, open, at);
+  return id;
+}
+
+// Teams carried over from before lineups (or after a lower lineup size) can have too many starters.
+// Bench the extras with the fewest season points, from now on.
+function fixLineups(league) {
+  if (!['active', 'complete'].includes(league.status)) return;
+  const limit = starterLimit(league);
+  const history = lineupHistory(league.id);
+  const totals = athleteTotals(league.sport, league.scoring);
+  for (const t of all('SELECT id FROM league_teams WHERE league_id = ?', league.id)) {
+    const starters = all('SELECT id, athlete_id FROM roster WHERE league_team_id = ? AND dropped_at IS NULL', t.id)
+      .filter((r) => starterAt(history, r.id))
+      .sort((a, b) => (totals[b.athlete_id]?.points || 0) - (totals[a.athlete_id]?.points || 0));
+    for (const r of starters.slice(limit)) setSlot(r.id, false);
+  }
+}
+
+const dayOf = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ });
+
+// ESPN-style lock: once a player's Chi game that night has started, he can't be moved until the next day.
+function lockedTeams(sport, now = new Date()) {
+  const today = dayOf(now.toISOString());
+  const locked = new Set();
+  for (const g of all(
+    `SELECT home_team_id, away_team_id, starts_at, status FROM games
+      WHERE sport = ? AND (status = 'live' OR (starts_at <= ? AND status != 'final') OR (status = 'final' AND starts_at <= ?))`,
+    sport, now.toISOString(), now.toISOString()
+  )) {
+    if (g.status === 'live' || dayOf(g.starts_at) === today) {
+      if (g.home_team_id) locked.add(g.home_team_id);
+      if (g.away_team_id) locked.add(g.away_team_id);
+    }
+  }
+  return locked;
+}
+
+// The next Chi game for each intramural team in a sport (that hasn't finished).
+function nextGames(sport) {
+  const out = {};
+  for (const g of all(
+    `SELECT g.id, g.starts_at, g.status, g.home_team_id, g.away_team_id, h.name AS home_name, aw.name AS away_name
+       FROM games g LEFT JOIN im_teams h ON h.id = g.home_team_id LEFT JOIN im_teams aw ON aw.id = g.away_team_id
+      WHERE g.sport = ? AND g.status != 'final' AND g.starts_at IS NOT NULL ORDER BY g.starts_at`,
+    sport
+  )) {
+    for (const [mine, opp] of [[g.home_team_id, g.away_name], [g.away_team_id, g.home_name]]) {
+      if (mine && !out[mine]) out[mine] = { game_id: g.id, starts_at: g.starts_at, status: g.status, opponent: opp || 'TBD' };
+    }
+  }
+  return out;
+}
+
+// Standings: each team's points from its starters, counting only games that started while the
+// player was rostered and in the starting lineup. Bench points are tracked but don't count.
 function standings(league, R = rounds(league)) {
   const lines = sportStatLines(league.sport);
   const byAthlete = {};
   for (const l of lines) (byAthlete[l.athlete_id] ||= []).push(l);
 
-  const teams = leagueTeams(league.id).map((t) => ({ ...t, points: 0, weeks: {}, players: [], byWeek: {} }));
+  const teams = leagueTeams(league.id).map((t) => ({ ...t, points: 0, weeks: {}, players: [], byWeek: {}, adds: 0, drops: 0 }));
+  const history = lineupHistory(league.id);
+  const locked = lockedTeams(league.sport);
+  const upcoming = nextGames(league.sport);
   const teamById = Object.fromEntries(teams.map((t) => [t.id, t]));
   const entries = all(
-    `SELECT r.*, a.name, a.position, it.name AS team_name
+    `SELECT r.*, a.name, a.position, a.im_team_id, it.name AS team_name
        FROM roster r JOIN athletes a ON a.id = r.athlete_id
        LEFT JOIN im_teams it ON it.id = a.im_team_id
       WHERE r.league_id = ? ORDER BY r.id`,
@@ -155,32 +258,42 @@ function standings(league, R = rounds(league)) {
   for (const e of entries) {
     const team = teamById[e.league_team_id];
     if (!team) continue;
+    if (e.how === 'free agent' || e.how === 'commissioner') team.adds++;
+    if (e.dropped_at && e.dropped_at !== e.acquired_at) team.drops++;
     let pts = 0;
+    let teamPts = 0;
     for (const l of byAthlete[e.athlete_id] || []) {
       const counts = l.starts_at
         ? l.starts_at >= e.acquired_at && (!e.dropped_at || l.starts_at < e.dropped_at)
         : !e.dropped_at;
       if (!counts) continue;
       const p = linePoints(l, league.scoring);
+      const starter = starterAt(history, e.id, l.starts_at || undefined);
       pts += p;
+      if (starter) teamPts += p;
       const round = R.byGame[l.game_id];
       if (round == null) continue;
-      team.weeks[round] = (team.weeks[round] || 0) + p;
+      if (starter) team.weeks[round] = (team.weeks[round] || 0) + p;
       const wk = (team.byWeek[round] ||= {});
-      const c = (wk[e.athlete_id] ||= { athlete_id: e.athlete_id, name: e.name, position: e.position, points: 0, dropped: !!e.dropped_at });
+      const c = (wk[`${e.athlete_id}:${starter ? 's' : 'b'}`] ||= {
+        athlete_id: e.athlete_id, name: e.name, position: e.position, points: 0, dropped: !!e.dropped_at, bench: !starter,
+      });
       c.points = Math.round((c.points + p) * 100) / 100;
     }
     pts = Math.round(pts * 100) / 100;
-    team.points += pts;
+    team.points += teamPts;
     if (!e.dropped_at) {
+      const next = upcoming[e.im_team_id] || null;
       team.players.push({
-        athlete_id: e.athlete_id, name: e.name, position: e.position,
-        team_name: e.team_name, how: e.how, points: pts,
+        athlete_id: e.athlete_id, roster_id: e.id, name: e.name, position: e.position, im_team_id: e.im_team_id,
+        team_name: e.team_name, how: e.how, points: pts, starter: starterAt(history, e.id),
+        locked: locked.has(e.im_team_id), next_game: next,
       });
     }
   }
   for (const t of teams) {
     t.points = Math.round(t.points * 100) / 100;
+    t.players.sort((a, b) => b.starter - a.starter || b.points - a.points);
     for (const w of Object.keys(t.weeks)) t.weeks[w] = Math.round(t.weeks[w] * 100) / 100;
   }
   teams.sort((a, b) => b.points - a.points);
@@ -260,10 +373,9 @@ function leagueView(league) {
     else if (m.home_points > m.away_points) { h.w++; a.l++; }
     else { a.w++; h.l++; }
   }
-  const pct = (t) => (t.w + t.l + t.t ? (t.w + t.t / 2) / (t.w + t.l + t.t) : 0);
-  teams.sort((a, b) => pct(b) - pct(a) || b.w - a.w || b.points - a.points);
-  teams.forEach((t, i) => {
-    t.rank = i + 1;
+  const finals = matchups.filter((m) => m.state === 'final' && byId[m.home_team_id] && byId[m.away_team_id]);
+  rankTeams(teams, finals);
+  teams.forEach((t) => {
     t.pf = Math.round(t.pf * 100) / 100;
     t.pa = Math.round(t.pa * 100) / 100;
   });
@@ -304,14 +416,119 @@ function leagueView(league) {
   }
 
   const allGames = [...matchups, ...(playoffs?.rounds.flatMap((r) => r.games) || [])];
+  const played = allGames.filter((m) => m.state === 'final' && byId[m.home_team_id] && byId[m.away_team_id]);
+  streaks(teams, played);
+  if (size) teams.forEach((t, i) => (t.seed = i < size ? i + 1 : null));
+  const power = powerRankings(teams, played);
+  const records = leagueRecords(teams, played);
   predict(league, teams, allGames, R0);
   const judged = allGames.filter((g) => g.prediction?.correct !== undefined);
   const aiRecord = { right: judged.filter((g) => g.prediction.correct).length, total: judged.length };
 
   return {
-    teams, matchups, playoffs, regularDone, lastWeek, currentWeek, roundBy: league.round_by, aiRecord,
+    teams, matchups, playoffs, regularDone, lastWeek, currentWeek, roundBy: league.round_by, aiRecord, power, records,
+    starters: starterLimit(league),
     champion: champion ? { id: champion.id, name: champion.name, owner_name: champion.owner_name, points: champion.points } : null,
     weeks: Object.fromEntries(Array.from({ length: lastWeek }, (_, i) => [i + 1, weeks[i + 1] || { state: 'upcoming', games: 0 }])),
+  };
+}
+
+// ---------- ESPN-style standings, power rankings and records ----------
+
+const winPct = (t) => (t.w + t.l + t.t ? (t.w + t.t / 2) / (t.w + t.l + t.t) : 0);
+
+// ESPN's order: win percentage, then head-to-head record among the tied teams, then points for,
+// then points against (more is better: you were unlucky).
+function rankTeams(teams, finals) {
+  const h2h = (group) => {
+    const ids = new Set(group.map((t) => t.id));
+    const rec = Object.fromEntries(group.map((t) => [t.id, { w: 0, l: 0, t: 0 }]));
+    for (const m of finals) {
+      if (!ids.has(m.home_team_id) || !ids.has(m.away_team_id)) continue;
+      const [h, a] = [rec[m.home_team_id], rec[m.away_team_id]];
+      if (m.home_points === m.away_points) { h.t++; a.t++; }
+      else if (m.home_points > m.away_points) { h.w++; a.l++; }
+      else { a.w++; h.l++; }
+    }
+    return (t) => winPct(rec[t.id]);
+  };
+  teams.sort((a, b) => winPct(b) - winPct(a));
+  const out = [];
+  for (let i = 0; i < teams.length;) {
+    let j = i;
+    while (j < teams.length && winPct(teams[j]) === winPct(teams[i])) j++;
+    const group = teams.slice(i, j);
+    const hp = h2h(group);
+    group.sort((a, b) => hp(b) - hp(a) || b.pf - a.pf || b.pa - a.pa || b.points - a.points);
+    out.push(...group);
+    i = j;
+  }
+  teams.splice(0, teams.length, ...out);
+  teams.forEach((t, i) => (t.rank = i + 1));
+}
+
+// Current streak per team, like ESPN's W3 / L1, from finished games in order.
+function streaks(teams, played) {
+  for (const t of teams) {
+    let type = null, len = 0;
+    for (const m of [...played].sort((a, b) => a.week - b.week)) {
+      if (m.home_team_id !== t.id && m.away_team_id !== t.id) continue;
+      // The game's winner, so a playoff tie that went to the higher seed counts as a win and a loss.
+      const r = m.winner ? (m.winner === t.id ? 'W' : 'L') : 'T';
+      if (r === type) len++;
+      else { type = r; len = 1; }
+    }
+    t.streak = type ? `${type}${len}` : null;
+  }
+}
+
+// ESPN's power rankings: 80% two-step dominance (wins, plus the wins of the teams you beat),
+// 15% average score and 5% average margin of victory.
+function powerRankings(teams, played) {
+  if (!played.length) return [];
+  const idx = Object.fromEntries(teams.map((t, i) => [t.id, i]));
+  const n = teams.length;
+  const W = Array.from({ length: n }, () => Array(n).fill(0));
+  const scores = teams.map(() => []);
+  const movs = teams.map(() => []);
+  for (const m of played) {
+    const h = idx[m.home_team_id], a = idx[m.away_team_id];
+    scores[h].push(m.home_points); scores[a].push(m.away_points);
+    movs[h].push(m.home_points - m.away_points); movs[a].push(m.away_points - m.home_points);
+    if (m.home_points > m.away_points) W[h][a]++;
+    else if (m.away_points > m.home_points) W[a][h]++;
+  }
+  const avg = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0);
+  const out = teams.map((t, i) => {
+    let dom = 0;
+    for (let j = 0; j < n; j++) {
+      dom += W[i][j];
+      for (let k = 0; k < n; k++) dom += W[i][k] * W[k][j];
+    }
+    const s = avg(scores[i]), mov = avg(movs[i]);
+    return { team_id: t.id, name: t.name, owner_name: t.owner_name, dominance: dom, avg_score: Math.round(s * 10) / 10,
+      avg_margin: Math.round(mov * 10) / 10, power: Math.round((dom * 0.8 + s * 0.15 + mov * 0.05) * 100) / 100 };
+  });
+  out.sort((a, b) => b.power - a.power);
+  out.forEach((p, i) => (p.rank = i + 1));
+  return out;
+}
+
+// Season highs and lows, like ESPN's top scorer, least scorer, most points against and best/worst round.
+function leagueRecords(teams, played) {
+  if (!played.length) return null;
+  const pick = (key, dir) => [...teams].sort((a, b) => dir * (a[key] - b[key]))[0];
+  const nights = played.flatMap((m) => [
+    { team_id: m.home_team_id, week: m.week, points: m.home_points },
+    { team_id: m.away_team_id, week: m.week, points: m.away_points },
+  ]);
+  const name = (id) => teams.find((t) => t.id === id)?.name;
+  const best = [...nights].sort((a, b) => b.points - a.points)[0];
+  const worst = [...nights].sort((a, b) => a.points - b.points)[0];
+  const t = (x, key) => ({ team_id: x.id, name: x.name, value: x[key] });
+  return {
+    top_scorer: t(pick('pf', -1), 'pf'), least_scorer: t(pick('pf', 1), 'pf'), most_against: t(pick('pa', -1), 'pa'),
+    best_round: { ...best, name: name(best.team_id) }, worst_round: { ...worst, name: name(worst.team_id) },
   };
 }
 
@@ -367,10 +584,12 @@ function playerProjections(league, before = null) {
 // player's expected points for every Chi game their team still has left in it.
 function predict(league, teams, games, R) {
   const byId = Object.fromEntries(teams.map((t) => [t.id, t]));
+  const history = lineupHistory(league.id);
   const cache = {};
   const projections = (before) => (cache[before] ||= playerProjections(league, before === 'now' ? null : before));
   const side = (team, round, live, P) => {
-    const left = (R.list[round]?.chi_games || []).filter((g) => !live || g.status !== 'final');
+    const info = R.list[round];
+    const left = (info?.chi_games || []).filter((g) => !live || g.status !== 'final');
     let mu = live ? team.weeks[round] || 0 : 0;
     let v = 0;
     const players = [];
@@ -379,11 +598,15 @@ function predict(league, teams, games, R) {
       if (!pr) continue;
       const n = left.filter((g) => g.home_team_id === pr.team || g.away_team_id === pr.team).length;
       const proj = pr.est * n;
-      mu += proj;
-      v += n * (P.cv * pr.est) ** 2;
-      if (n) players.push({ athlete_id: p.athlete_id, name: p.name, proj: Math.round(proj * 10) / 10 });
+      // Only starters count: the lineup when the round started, or the current one for a live round.
+      const starter = starterAt(history, p.roster_id, live ? undefined : info?.first_game || undefined);
+      if (starter) {
+        mu += proj;
+        v += n * (P.cv * pr.est) ** 2;
+      }
+      players.push({ athlete_id: p.athlete_id, name: p.name, position: p.position, starter, games: n, proj: Math.round(proj * 10) / 10 });
     }
-    players.sort((a, b) => b.proj - a.proj);
+    players.sort((a, b) => b.starter - a.starter || b.proj - a.proj);
     return { mu, v, players };
   };
   for (const g of games) {
@@ -407,7 +630,8 @@ function predict(league, teams, games, R) {
       basis: 'stats', pregame: !live,
       home_proj: Math.round(h.mu * 10) / 10, away_proj: Math.round(a.mu * 10) / 10,
       home_win: Math.round(pHome * 100) / 100,
-      home_key: h.players.slice(0, 3), away_key: a.players.slice(0, 3),
+      home_key: h.players.filter((x) => x.starter && x.proj).slice(0, 3), away_key: a.players.filter((x) => x.starter && x.proj).slice(0, 3),
+      home_lineup: h.players, away_lineup: a.players,
     };
     pred.pick = pHome > 0.5 ? g.home_team_id : pHome < 0.5 ? g.away_team_id : null;
     if (g.state === 'final' && g.winner && pred.pick) pred.correct = pred.pick === g.winner;
@@ -415,8 +639,8 @@ function predict(league, teams, games, R) {
   }
 }
 
-function log(leagueId, text) {
-  run('INSERT INTO activity (league_id, text) VALUES (?, ?)', leagueId, text);
+function log(leagueId, text, kind = 'league') {
+  run('INSERT INTO activity (league_id, text, kind) VALUES (?, ?, ?)', leagueId, text, kind);
 }
 
 // ---------- Draft ----------
@@ -478,11 +702,8 @@ function makePick(league, athleteId, { auto = false, at = Date.now() } = {}) {
     'INSERT INTO draft_picks (league_id, pick_no, round, league_team_id, athlete_id, auto) VALUES (?, ?, ?, ?, ?, ?)',
     league.id, pickNo, state.round, state.onClock.id, athleteId, auto ? 1 : 0
   );
-  run(
-    'INSERT INTO roster (league_id, league_team_id, athlete_id, acquired_at, how) VALUES (?, ?, ?, ?, ?)',
-    league.id, state.onClock.id, athleteId, EPOCH, 'draft'
-  );
-  log(league.id, `Pick ${pickNo}: ${state.onClock.name} took ${athlete.name}${auto ? ' (auto)' : ''}`);
+  addToRoster(league, state.onClock.id, athleteId, EPOCH, 'draft');
+  log(league.id, `Pick ${pickNo}: ${state.onClock.name} took ${athlete.name}${auto ? ' (auto)' : ''}`, 'draft');
 
   const remainingPool = availableAthletes(league).length;
   if (pickNo >= state.totalPicks || remainingPool === 0) {
@@ -570,15 +791,32 @@ function runBots(leagueId) {
       const better = bot.bot === 'lose' ? want.points < (cut?.points ?? Infinity) : want.points > (cut?.points ?? -Infinity);
       const at = new Date().toISOString();
       if (roster.length < league.roster_size) {
-        run('INSERT INTO roster (league_id, league_team_id, athlete_id, acquired_at, how) VALUES (?, ?, ?, ?, ?)', league.id, bot.id, want.id, at, 'free agent');
-        log(league.id, `${bot.name} added ${want.name}`);
+        addToRoster(league, bot.id, want.id, at, 'free agent');
+        log(league.id, `${bot.name} added ${want.name}`, 'move');
       } else if (cut && better) {
         run('UPDATE roster SET dropped_at = ? WHERE league_team_id = ? AND athlete_id = ? AND dropped_at IS NULL', at, bot.id, cut.athlete_id);
-        run('INSERT INTO roster (league_id, league_team_id, athlete_id, acquired_at, how) VALUES (?, ?, ?, ?, ?)', league.id, bot.id, want.id, at, 'free agent');
-        log(league.id, `${bot.name} added ${want.name} and dropped ${cut.name}`);
+        addToRoster(league, bot.id, want.id, at, 'free agent');
+        log(league.id, `${bot.name} added ${want.name} and dropped ${cut.name}`, 'move');
       }
+      botLineup(league, bot);
     }
   });
+}
+
+// Bots set their lineup too: the winner starts its best players, the loser its worst.
+// Players whose game has already started that night stay where they are.
+function botLineup(league, bot) {
+  const totals = athleteTotals(league.sport, league.scoring);
+  const locked = lockedTeams(league.sport);
+  const history = lineupHistory(league.id);
+  const roster = all(
+    `SELECT r.id, r.athlete_id, a.im_team_id FROM roster r JOIN athletes a ON a.id = r.athlete_id
+      WHERE r.league_team_id = ? AND r.dropped_at IS NULL`, bot.id
+  ).map((r) => ({ ...r, points: totals[r.athlete_id]?.points || 0, starter: starterAt(history, r.id) }));
+  const free = roster.filter((r) => !locked.has(r.im_team_id));
+  const slots = starterLimit(league) - roster.filter((r) => r.starter && locked.has(r.im_team_id)).length;
+  const want = new Set(rankFor(bot.bot, free).slice(0, Math.max(0, slots)).map((r) => r.id));
+  for (const r of free) if (r.starter !== want.has(r.id)) setSlot(r.id, want.has(r.id));
 }
 
 function httpError(status, message) {
@@ -588,6 +826,6 @@ function httpError(status, message) {
 }
 
 module.exports = {
-  EPOCH, sportStatLines, statLinesFor, linePoints, athleteTotals, athletesWithPoints, getLeague, leagueTeams, standings, log,
+  EPOCH, sportStatLines, starterLimit, lineupHistory, starterAt, setSlot, addToRoster, fixLineups, lockedTeams, nextGames, playerProjections, botLineup, statLinesFor, linePoints, athleteTotals, athletesWithPoints, getLeague, leagueTeams, standings, log,
   draftOrder, draftState, leagueView, runBots, botTeams, generateSchedule, defaultRegularWeeks, rounds, roundRobin, availableAthletes, makePick, processExpiredPicks, httpError,
 };

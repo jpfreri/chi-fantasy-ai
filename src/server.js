@@ -361,7 +361,26 @@ app.get('/api/athletes/:id', needUser, wrap((req) => {
       WHERE r.athlete_id = ? AND r.dropped_at IS NULL`,
     a.id
   );
-  return { athlete: a, sport: SPORTS[a.sport], log, owners };
+  // ESPN's player card numbers: season total and average, projected average, and how many fantasy
+  // teams roster and start him across this sport's leagues.
+  const leagues = all(`SELECT * FROM leagues WHERE sport = ? AND status IN ('active', 'complete')`, a.sport);
+  let rostered = 0, started = 0;
+  for (const l of leagues) {
+    const r = one('SELECT id FROM roster WHERE league_id = ? AND athlete_id = ? AND dropped_at IS NULL', l.id, a.id);
+    if (!r) continue;
+    rostered++;
+    if (F.starterAt(F.lineupHistory(l.id), r.id)) started++;
+  }
+  const total = Math.round(log.reduce((sum, r) => sum + r.points, 0) * 100) / 100;
+  const proj = F.playerProjections({ sport: a.sport, scoring }).perGame[a.id];
+  const card = {
+    total, games: log.length, avg: log.length ? Math.round((total / log.length) * 10) / 10 : 0,
+    proj_avg: Math.round((proj?.est || 0) * 10) / 10,
+    pct_rostered: leagues.length ? Math.round((rostered / leagues.length) * 100) : null,
+    pct_started: leagues.length ? Math.round((started / leagues.length) * 100) : null,
+    next_game: F.nextGames(a.sport)[a.im_team_id] || null,
+  };
+  return { athlete: a, sport: SPORTS[a.sport], log, owners, card };
 }));
 
 app.post('/api/teams', needAdmin, wrap((req) => {
@@ -574,13 +593,14 @@ app.post('/api/leagues', needAdmin, wrap((req) => {
   const by = roundBy(req.body.round_by);
   const po = playoffTeams(req.body.playoff_teams ?? 4);
   const r = run(
-    `INSERT INTO leagues (sport, name, season, roster_size, pick_seconds, scoring, created_by, regular_weeks, playoff_teams, round_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO leagues (sport, name, season, roster_size, pick_seconds, scoring, created_by, regular_weeks, playoff_teams, round_by, starters)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     sport, name, cleanText(req.body.season, 30) || null,
     Math.min(20, Math.max(1, Number(req.body.roster_size) || SPORTS[sport].rosterSize)),
     Math.max(0, Number(req.body.pick_seconds ?? 90) || 0),
     JSON.stringify(defaultScoring(sport)), req.user.id,
-    req.body.regular_weeks ? clampWeeks(req.body.regular_weeks) : F.defaultRegularWeeks(sport, by, po), po, by
+    req.body.regular_weeks ? clampWeeks(req.body.regular_weeks) : F.defaultRegularWeeks(sport, by, po), po, by,
+    req.body.starters ? Math.max(1, Math.round(Number(req.body.starters)) || 1) : null
   );
   return { id: Number(r.lastInsertRowid) };
 }));
@@ -593,6 +613,8 @@ const playoffTeams = (v) => ([0, 2, 4].includes(Number(v)) ? Number(v) : 4);
 function tick(leagueId) {
   F.processExpiredPicks(leagueId);
   F.runBots(leagueId);
+  const league = F.getLeague(leagueId);
+  if (league) F.fixLineups(league);
 }
 
 // Admins can see which teams are bots; everyone else sees ordinary teams.
@@ -600,6 +622,18 @@ function markBots(req, leagueId, teams) {
   if (!req.user?.is_admin) return teams;
   const bots = Object.fromEntries(F.botTeams(leagueId).map((b) => [b.id, b.bot]));
   return teams.map((t) => ({ ...t, bot: bots[t.id] || null }));
+}
+
+// Free agents with ESPN's columns: season points, average, projected average and their next game.
+function freeAgentList(league) {
+  const P = F.playerProjections(league);
+  const next = F.nextGames(league.sport);
+  return F.availableAthletes(league).map((a) => ({
+    ...a,
+    avg: a.games ? Math.round((a.points / a.games) * 10) / 10 : 0,
+    proj_avg: Math.round((P.perGame[a.id]?.est || 0) * 10) / 10,
+    next_game: next[a.im_team_id] || null,
+  })).sort((a, b) => b.proj_avg - a.proj_avg || b.points - a.points);
 }
 
 function loadLeague(req) {
@@ -626,9 +660,12 @@ app.get('/api/leagues/:id', needUser, wrap((req) => {
     weekStates: view.weeks,
     roundBy: view.roundBy,
     aiRecord: view.aiRecord,
+    power: view.power,
+    records: view.records,
+    starters: view.starters,
     myTeam: mine,
     isCommish: isCommish(req.user, league),
-    freeAgents: league.status === 'active' ? F.availableAthletes(league).sort((a, b) => b.points - a.points) : [],
+    freeAgents: league.status === 'active' ? freeAgentList(league) : [],
     activity: all('SELECT * FROM activity WHERE league_id = ? ORDER BY id DESC LIMIT 30', league.id),
   };
 }));
@@ -650,6 +687,8 @@ app.put('/api/leagues/:id', needUser, wrap((req) => {
     for (const [k] of SPORTS[league.sport].stats) scoring[k] = Number(req.body.scoring[k]) || 0;
   }
   const playoffs = req.body.playoff_teams !== undefined ? playoffTeams(req.body.playoff_teams) : league.playoff_teams;
+  const starters = req.body.starters !== undefined && req.body.starters !== ''
+    ? Math.min(roster, Math.max(1, Math.round(Number(req.body.starters)) || 1)) : league.starters;
   const by = req.body.round_by !== undefined ? roundBy(req.body.round_by) : league.round_by;
   // Switching between game-night and weekly rounds resets the season length unless a new one is given.
   const asked = req.body.regular_weeks ? clampWeeks(req.body.regular_weeks) : league.regular_weeks;
@@ -659,8 +698,8 @@ app.put('/api/leagues/:id', needUser, wrap((req) => {
   if (req.body.status === 'active' && league.status === 'complete') status = 'active';
   run(
     `UPDATE leagues SET name = ?, season = ?, roster_size = ?, pick_seconds = ?, scoring = ?, status = ?,
-            regular_weeks = ?, playoff_teams = ?, round_by = ? WHERE id = ?`,
-    name, season, roster, pick, JSON.stringify(scoring), status, regularWeeks, playoffs, by, league.id
+            regular_weeks = ?, playoff_teams = ?, round_by = ?, starters = ? WHERE id = ?`,
+    name, season, roster, pick, JSON.stringify(scoring), status, regularWeeks, playoffs, by, starters, league.id
   );
   // A new season length or round type means a new head-to-head schedule.
   if ((regularWeeks !== league.regular_weeks || by !== league.round_by) && ['active', 'complete'].includes(league.status)) {
@@ -741,7 +780,7 @@ app.post('/api/leagues/:id/draft/start', needUser, wrap((req) => {
   const pool = one('SELECT COUNT(*) AS c FROM athletes WHERE sport = ? AND active = 1', league.sport).c;
   if (pool === 0) throw httpError(400, 'Add players to this sport before drafting.');
   run(`UPDATE leagues SET status = 'drafting', clock_started_at = ?, draft_paused = 0 WHERE id = ?`, Date.now(), league.id);
-  F.log(league.id, 'The draft has started!');
+  F.log(league.id, 'The draft has started!', 'draft');
   F.runBots(league.id);
   return { ok: true };
 }));
@@ -845,7 +884,7 @@ app.post('/api/leagues/:id/admin/roster', needUser, wrap((req) => {
     if (req.body.drop_id) {
       const r = run('UPDATE roster SET dropped_at = ? WHERE league_team_id = ? AND athlete_id = ? AND dropped_at IS NULL', at, team.id, Number(req.body.drop_id));
       if (!r.changes) throw httpError(400, 'That player is not on this team.');
-      F.log(league.id, `The commissioner removed ${one('SELECT name FROM athletes WHERE id = ?', req.body.drop_id).name} from ${team.name}`);
+      F.log(league.id, `The commissioner removed ${one('SELECT name FROM athletes WHERE id = ?', req.body.drop_id).name} from ${team.name}`, 'commish');
     }
     if (req.body.add_id) {
       const a = one('SELECT * FROM athletes WHERE id = ? AND sport = ?', Number(req.body.add_id), league.sport);
@@ -856,8 +895,49 @@ app.post('/api/leagues/:id/admin/roster', needUser, wrap((req) => {
       // Backdate when asked, so the player's past games count for his new team (and not his old one).
       const from = req.body.count_past ? F.EPOCH : at;
       if (current) run(`UPDATE roster SET dropped_at = ${req.body.count_past ? 'acquired_at' : '?'} WHERE id = ?`, ...(req.body.count_past ? [] : [at]), current.id);
-      run('INSERT INTO roster (league_id, league_team_id, athlete_id, acquired_at, how) VALUES (?, ?, ?, ?, ?)', league.id, team.id, a.id, from, 'commissioner');
-      F.log(league.id, `The commissioner moved ${a.name} to ${team.name}${current ? ` from ${current.name}` : ''}`);
+      F.addToRoster(league, team.id, a.id, from, 'commissioner');
+      F.log(league.id, `The commissioner moved ${a.name} to ${team.name}${current ? ` from ${current.name}` : ''}`, 'commish');
+    }
+    return { ok: true };
+  });
+}));
+
+// ---------- Lineups ----------
+
+// Move a player between the starting lineup and the bench. Starting someone when every starting
+// spot is full needs a starter to swap out (swap_id). Players whose game has started tonight are locked.
+app.post('/api/leagues/:id/lineup', needUser, wrap((req) => {
+  const league = loadLeague(req);
+  if (league.status !== 'active') throw httpError(400, 'Lineups open after the draft.');
+  const team = req.body.team_id && isCommish(req.user, league)
+    ? one('SELECT * FROM league_teams WHERE id = ? AND league_id = ?', req.body.team_id, league.id)
+    : one('SELECT * FROM league_teams WHERE league_id = ? AND user_id = ?', league.id, req.user.id);
+  if (!team) throw httpError(403, 'You do not have a team in this league.');
+  const history = F.lineupHistory(league.id);
+  const locked = F.lockedTeams(league.sport);
+  const entry = (athleteId) => {
+    const r = one(
+      `SELECT r.id, a.name, a.im_team_id FROM roster r JOIN athletes a ON a.id = r.athlete_id
+        WHERE r.league_team_id = ? AND r.athlete_id = ? AND r.dropped_at IS NULL`, team.id, Number(athleteId));
+    if (!r) throw httpError(400, 'That player is not on this roster.');
+    if (locked.has(r.im_team_id)) throw httpError(400, `${r.name}'s game has started tonight, so he's locked until tomorrow.`);
+    return { ...r, starter: F.starterAt(history, r.id) };
+  };
+  const p = entry(req.body.athlete_id);
+  const start = !!req.body.starter;
+  return tx(() => {
+    if (start && !p.starter) {
+      const starters = all('SELECT id FROM roster WHERE league_team_id = ? AND dropped_at IS NULL', team.id)
+        .filter((r) => F.starterAt(history, r.id)).length;
+      if (starters >= F.starterLimit(league)) {
+        if (!req.body.swap_id) throw httpError(400, 'Your lineup is full. Pick a starter to bench.');
+        const out = entry(req.body.swap_id);
+        if (!out.starter) throw httpError(400, `${out.name} is already on the bench.`);
+        F.setSlot(out.id, false);
+      }
+      F.setSlot(p.id, true);
+    } else if (!start && p.starter) {
+      F.setSlot(p.id, false);
     }
     return { ok: true };
   });
@@ -889,12 +969,11 @@ app.post('/api/leagues/:id/transactions', needUser, wrap((req) => {
       if (one('SELECT 1 FROM roster WHERE league_id = ? AND athlete_id = ? AND dropped_at IS NULL', league.id, addId)) {
         throw httpError(409, `${athlete.name} is already on a team.`);
       }
-      run('INSERT INTO roster (league_id, league_team_id, athlete_id, acquired_at, how) VALUES (?, ?, ?, ?, ?)',
-        league.id, team.id, addId, now, 'free agent');
+      F.addToRoster(league, team.id, addId, now, 'free agent');
       added = athlete.name;
     }
     if (!added && !dropped) throw httpError(400, 'Pick a player to add or drop.');
-    F.log(league.id, `${team.name}${added ? ` added ${added}` : ''}${added && dropped ? ' and' : ''}${dropped ? ` dropped ${dropped}` : ''}`);
+    F.log(league.id, `${team.name}${added ? ` added ${added}` : ''}${added && dropped ? ' and' : ''}${dropped ? ` dropped ${dropped}` : ''}`, 'move');
     return { ok: true };
   });
 }));

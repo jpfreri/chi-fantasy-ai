@@ -273,3 +273,14 @@ button.google .g { font-weight: 800; color: #4285f4; }
 .predbar span { display: block; height: 100%; background: var(--brand); }
 .good { color: var(--good); }
 .bad { color: var(--bad); }
+
+/* ESPN-style lineups, standings and player card */
+td.slot { width: 34px; font-weight: 700; font-size: .8rem; color: var(--brand); }
+tr.bench td { background: #f7f8fb; }
+tr.bench td.slot { color: var(--muted); }
+tr.benchhead td { padding-top: 10px; text-transform: uppercase; letter-spacing: .04em; font-size: .72rem; }
+.nowrap { white-space: nowrap; }
+.badge.seedb { background: #eef2ff; color: var(--brand); }
+.statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 10px 0; }
+.statgrid > div { background: #f7f8fb; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: grid; gap: 2px; }
+.statgrid strong { font-size: 1.15rem; }

@@ -49,6 +49,17 @@ Every night Chi plays is a fantasy round, and all the Chi games that night count
 
 Standings rank teams by record, then by season points. The top 4 (or top 2) make the playoffs, which use the last rounds of the season: semifinals (1 vs 4, 2 vs 3) and then a championship. Ties in the playoffs go to the higher seed. The commissioner sets the regular season length and playoff size under **Scoring & settings**. Changing the season length redraws the schedule. By default the regular season fills every round the playoffs don't need.
 
+### ESPN-style league features
+
+The league works like an ESPN fantasy league (modeled on the data the [espn-api](https://github.com/cwendt94/espn-api) project exposes):
+
+- **Starters and bench.** Each team starts a set number of players (default: roster size minus one; the commissioner changes it under **Scoring & settings**). Only starters score. A new player fills an open starting spot, otherwise goes to the bench. A player locks once his Chi game has started that night and unlocks the next day. Lineup changes never rewrite past games: each stat line counts if the player was starting when that game began.
+- **Box scores.** "See player points" on a matchup shows each side's starters and bench with projected and actual points.
+- **Standings.** Record, then head-to-head among tied teams, then points for, then points against (ESPN's order). Streaks (W3, L1), playoff seeds, and each team's adds/drops. A league records card shows the top and lowest scorer, most points against, and the best and worst round.
+- **Power rankings.** ESPN's formula: 80% two-step dominance (your wins plus the wins of the teams you beat), 15% average score, 5% average margin.
+- **Players.** Free agents list average and projected points and the next game. Player pages show total, average, projected average, % rostered, % started and the next game.
+- **Activity.** Filter the league log by adds and drops, draft, commissioner moves, or league news.
+
 ### AI win predictions
 
 Every matchup shows who the AI picks, the win chance, and both teams' projected points. Each player's expected points per game is his average fantasy points per game, pulled toward the club average for his tier until he has a few games (a game his team played where he has no stat line counts as 0). A team's projection is the sum over its players of expected points times the number of Chi games his team plays that night. The win chance comes from the gap between the two projections and how much single games usually vary. Upcoming and finished rounds use only games played before the round, so finished rounds show whether the pick was right, and the matchups tab keeps the AI's record. During a live round, the points already scored count as they are. It runs inside the app with no API key or cost.
