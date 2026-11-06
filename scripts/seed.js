@@ -109,6 +109,14 @@ const VB_COLS = {
   serves_made: 'Serves Made', serve_err: 'Serves Missed', aces: 'Aces', bad_rec: 'Bad Serve Rec', good_rec: 'Good Serve Rec',
   attack_err: 'Attack Errors', attacks: 'Attacks', kills: 'Kills', assists: 'Assists', blocks: 'Blocks', digs: 'Digs', dig_err: 'Dig Errors',
 };
+// Nobody has played yet in the demo's volleyball league, so its draft goes by the mock sheet's season
+// (points x tier), like a preseason ranking.
+const MOCK_RANK = {};
+for (const r of MOCK_VB) {
+  if (r.Played !== 'Y') continue;
+  const pts = Object.entries(VB_COLS).reduce((t, [k, col]) => t + (Number(r[col]) || 0) * defaultScoring('volleyball')[k], 0);
+  MOCK_RANK[r['Full Name']] = (MOCK_RANK[r['Full Name']] || 0) + pts * ({ A: 1.25, B: 1, C: 0.75 }[r.Team] || 1);
+}
 
 // Who plays for which Chi team in the demo. Volleyball uses the real rosters; basketball and soccer
 // are dealt out at random (the real rosters aren't in yet).
@@ -142,27 +150,17 @@ function soccerLine(pos, cleanSheet) {
 }
 
 const DEMO_SEASON = {
-  // The mock sheet's game nights, moved so its last night is tomorrow: the rest are final.
-  volleyball({ sport, teamId, athleteId }) {
-    const dates = [...new Set(MOCK_VB.map((r) => r.Date))].sort((a, b) => new Date(a) - new Date(b));
-    const last = new Date(dates[dates.length - 1]);
-    const shift = Math.round((new Date(dayStr(now + DAY_MS)) - new Date(last.toISOString().slice(0, 10))) / DAY_MS);
-    const games = {};
+  // The mock sheet's game nights on their own dates, with nothing played yet: points only show up once
+  // the admin enters a game's score and stats (or uploads that night from scripts/demo/game-nights).
+  volleyball({ sport, teamId }) {
+    const games = new Set();
     for (const r of MOCK_VB) {
       const key = `${r['Game #']}|${r.Team}`;
-      if (!games[key]) {
-        const [mm, dd, yy] = r.Date.split('/');
-        const day = dayStr(Date.UTC(+yy, +mm - 1, +dd, 12) + shift * DAY_MS);
-        const starts = central(day, TIMES[r.Team]);
-        const final = new Date(starts).getTime() < now;
-        const [ws, ls] = (r.Result.match(/(\d)-(\d)/) || [0, 0, 0]).slice(1).map(Number);
-        const won = r.Result.startsWith('W');
-        games[key] = insertGame(sport, Number(r['Game #']), starts, r.Team === 'C' ? 'Rec' : 'Nest', teamId(`Chi ${r.Team}`), teamId(r.Opponent),
-          final ? 'final' : 'scheduled', final ? (won ? ws : ls) : null, final ? (won ? ls : ws) : null);
-        games[key + '|final'] = final;
-      }
-      if (!games[key + '|final'] || r.Played !== 'Y' || !athleteId[r['Full Name']]) continue;
-      insertLine(games[key], athleteId[r['Full Name']], Object.fromEntries(Object.entries(VB_COLS).map(([k, col]) => [k, Number(r[col]) || 0])));
+      if (games.has(key)) continue;
+      games.add(key);
+      const [mm, dd, yy] = r.Date.split('/');
+      insertGame(sport, Number(r['Game #']), central(`${yy}-${mm}-${dd}`, TIMES[r.Team]), r.Team === 'C' ? 'Rec' : 'Nest',
+        teamId(`Chi ${r.Team}`), teamId(r.Opponent), 'scheduled', null, null);
     }
   },
   basketball: (ctx) => madeUpSeason(ctx, ['A', 'B', 'C'], basketballLine, (mine) => [mine + rand(10) + 4, 30 + rand(30)]),
@@ -307,7 +305,8 @@ for (const [sport, cfg] of Object.entries(leagues)) {
     F.runBots(leagueId);
     const league = F.getLeague(leagueId);
     if (league.status !== 'drafting' || F.draftState(league).picksMade >= picksToMake) break;
-    const pool = F.availableAthletes(league).sort((a, b) => b.points - a.points);
+    const rank = (a) => (DEMO && sport === 'volleyball' ? MOCK_RANK[a.name] || 0 : a.points);
+    const pool = F.availableAthletes(league).sort((a, b) => rank(b) - rank(a));
     F.makePick(league, pool[rand(Math.min(4, pool.length))].id);
   }
   if (cfg.state === 'complete') run(`UPDATE leagues SET status = 'complete' WHERE id = ?`, leagueId);

@@ -70,7 +70,11 @@ Each league has its own scoring rules (points per stat), which the commissioner 
 
 ## Demo version
 
-`npm run demo` builds a separate demo database (`data/demo.db`) and starts the app at http://localhost:3001 with a red **Demo** badge. Your real leagues in `data/fantasy.db` are never touched. Every league is drafted and playing: Softball and Flag Football are finished, and Volleyball (from the mock stat sheet in `scripts/demo/mock-volleyball.csv`), Basketball and Soccer (made-up games) have finished rounds plus one coming up, with AI predictions, a trade, an open offer and a waiver claim. Dates are set relative to the day you build it. `npm run demo:start` restarts it without rebuilding. Log in as admin / password.
+`npm run demo` builds a separate demo database (`data/demo.db`) and starts the app at http://localhost:3001 with a red **Demo** badge. Your real leagues in `data/fantasy.db` are never touched. Every league has 4 teams of 6 players and is drafted. Softball and Flag Football are finished, and Basketball and Soccer (made-up games) have finished rounds, with AI predictions.
+
+**Volleyball is the league to present.** It is drafted (4 people: admin, jp, brody, steven), with a trade, an open offer and a waiver claim, but no game has a score or stats yet, so every team is at 0. During the demo, upload a game night from `scripts/demo/game-nights/` (Admin > Games & stats > Upload), or type a game's score and stats by hand, and the matchups, standings and player points update right away. Each player who played gets +10 when his Chi team wins and -20 when it loses, before the tier multiplier.
+
+`npm run demo` again resets the demo to that starting point. `npm run demo:start` restarts it without rebuilding. Log in as admin / password.
 
 ## Uploading stats from the stat sheet
 

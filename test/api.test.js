@@ -435,5 +435,12 @@ test('stat sheet upload: sections go to that Chi team game, nicknames match, sco
   assert.equal(game.data.game.home_score, 2);
   assert.equal(game.data.game.away_score, 1);
   const jerry = game.data.players.find((x) => x.name === 'Jeremiah Lorance');
-  assert.equal(jerry.points, 0.5 * 1 - 2 + 3 * 13, 'volleyball scoring: serves made 0.5, missed -1, kills 3');
+  assert.equal(jerry.points, 0.5 * 1 - 2 + 3 * 13 + 10, 'volleyball scoring: serves made 0.5, missed -1, kills 3, a win +10');
+  // A loss takes 20 off everyone who played; a game that isn't final gives nothing for the result.
+  await admin('PUT', `/api/games/${g.data.id}`, { home_score: 1, away_score: 2 });
+  let after = (await admin('GET', `/api/games/${g.data.id}`)).data.players.find((x) => x.name === 'Jeremiah Lorance');
+  assert.equal(after.points, 0.5 * 1 - 2 + 3 * 13 - 20);
+  await admin('PUT', `/api/games/${g.data.id}`, { status: 'live' });
+  after = (await admin('GET', `/api/games/${g.data.id}`)).data.players.find((x) => x.name === 'Jeremiah Lorance');
+  assert.equal(after.points, 0.5 * 1 - 2 + 3 * 13);
 });

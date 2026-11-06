@@ -223,6 +223,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS waiver_claims (
     const same = Object.keys(OLD).length === Object.keys(cur).length && Object.entries(OLD).every(([k, v]) => cur[k] === v);
     if (same) db.prepare('UPDATE leagues SET scoring = ? WHERE id = ?').run(JSON.stringify(defaultScoring('volleyball')), l.id);
   }
+  // Team results (2026-11-06): leagues that predate them get the sport's default win and loss points.
+  for (const l of db.prepare('SELECT id, sport, scoring FROM leagues').all()) {
+    const cur = JSON.parse(l.scoring);
+    if ('win' in cur) continue;
+    const def = defaultScoring(l.sport);
+    db.prepare('UPDATE leagues SET scoring = ? WHERE id = ?').run(JSON.stringify({ ...cur, win: def.win, loss: def.loss }), l.id);
+  }
 }
 
 function tx(fn) {

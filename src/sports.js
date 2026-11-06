@@ -103,9 +103,18 @@ const SPORTS = {
   },
 };
 
+// Points every player who played gets when his Chi team wins or loses the game. Only volleyball uses
+// them by default (set by JP: +10 a win, -20 a loss); other sports start at 0.
+const RESULTS = { volleyball: { win: 10, loss: -20 } };
+for (const [key, sport] of Object.entries(SPORTS)) {
+  sport.results = [['win', 'Team win', RESULTS[key]?.win || 0], ['loss', 'Team loss', RESULTS[key]?.loss || 0]];
+  // Everything a league can put points on: the box score stats, then the team result.
+  sport.scoring = [...sport.stats, ...sport.results];
+}
+
 function defaultScoring(sport) {
   const out = {};
-  for (const [key, , pts] of SPORTS[sport].stats) out[key] = pts;
+  for (const [key, , pts] of SPORTS[sport].scoring) out[key] = pts;
   return out;
 }
 

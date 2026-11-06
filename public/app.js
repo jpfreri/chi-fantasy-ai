@@ -792,7 +792,7 @@ function recentChart(games) {
 async function pagePlayer(id) {
   const d = await GET(`/api/athletes/${id}`);
   const { athlete: a, sport: s } = d;
-  const cols = s.stats.filter(([k]) => d.log.some((r) => r.stats[k]));
+  const cols = s.scoring.filter(([k]) => d.log.some((r) => r.stats[k]));
   const total = d.log.filter((r) => r.status !== 'scheduled').reduce((t, r) => t + r.points, 0);
   render(`
     <div class="page-head"><a href="#/sport/${a.sport}">${sportName(a.sport)}</a><span class="muted">/ Players</span></div>
@@ -990,8 +990,8 @@ async function pageLeague(id, tab, weekParam) {
 
     scoring: () => `<form class="card" data-form="scoring">
       <h2>${esc(s.name)} scoring</h2>
-      <p class="muted small">Fantasy points per stat. A player's score is each stat times its points, added up.${d.isCommish ? ' As commissioner you can change these at any time, and every score recalculates.' : ''}</p>
-      <div class="form-grid">${s.stats.map(([k, label]) => `<div class="field"><label>${esc(label)}</label>
+      <p class="muted small">Fantasy points per stat. A player's score is each stat times its points, added up, plus the team result when his Chi team wins or loses a game he played in.${d.isCommish ? ' As commissioner you can change these at any time, and every score recalculates.' : ''}</p>
+      <div class="form-grid">${s.scoring.map(([k, label]) => `<div class="field"><label>${esc(label)}</label>
         <input name="${k}" type="number" step="any" value="${esc(L.scoring[k] ?? 0)}" ${d.isCommish ? '' : 'disabled'}></div>`).join('')}</div>
       ${d.isCommish ? '<button>Save scoring</button>' : ''}
     </form>

@@ -760,7 +760,7 @@ app.put('/api/leagues/:id', needUser, wrap((req) => {
   let scoring = league.scoring;
   if (req.body.scoring) {
     scoring = {};
-    for (const [k] of SPORTS[league.sport].stats) scoring[k] = Number(req.body.scoring[k]) || 0;
+    for (const [k] of SPORTS[league.sport].scoring) scoring[k] = Number(req.body.scoring[k]) || 0;
   }
   const playoffs = req.body.playoff_teams !== undefined ? playoffTeams(req.body.playoff_teams) : league.playoff_teams;
   const starters = req.body.starters !== undefined && req.body.starters !== ''

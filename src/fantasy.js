@@ -14,13 +14,28 @@ function lineMultiplier(r) {
 }
 
 const STAT_LINE_SQL = `
-  SELECT gs.game_id, gs.athlete_id, gs.stats, g.starts_at, g.week, g.status, g.home_team_id, g.away_team_id,
+  SELECT gs.game_id, gs.athlete_id, gs.stats, g.starts_at, g.week, g.status, g.home_team_id, g.away_team_id, g.home_score, g.away_score,
          a.im_team_id, h.multiplier AS home_mult, h.is_club AS home_club, aw.multiplier AS away_mult, aw.is_club AS away_club
     FROM game_stats gs JOIN games g ON g.id = gs.game_id JOIN athletes a ON a.id = gs.athlete_id
     LEFT JOIN im_teams h ON h.id = g.home_team_id LEFT JOIN im_teams aw ON aw.id = g.away_team_id`;
 
+// Which side of the game a stat line counts for, the same way as lineMultiplier.
+function lineSide(r) {
+  if (r.im_team_id === r.home_team_id) return 'home';
+  if (r.im_team_id === r.away_team_id) return 'away';
+  return r.home_club ? 'home' : r.away_club ? 'away' : null;
+}
+
+// A final game with a score adds the team result to the line: win = 1 or loss = 1 (a tie adds nothing).
 function toLine(r) {
-  return { ...r, stats: JSON.parse(r.stats), mult: lineMultiplier(r) };
+  const stats = JSON.parse(r.stats);
+  const side = lineSide(r);
+  if (r.status === 'final' && side && r.home_score != null && r.away_score != null && r.home_score !== r.away_score) {
+    const mine = side === 'home' ? r.home_score : r.away_score;
+    const theirs = side === 'home' ? r.away_score : r.home_score;
+    stats[mine > theirs ? 'win' : 'loss'] = 1;
+  }
+  return { ...r, stats, mult: lineMultiplier(r) };
 }
 
 // Fantasy points for a stat line, after the team multiplier.
