@@ -345,7 +345,7 @@ app.get('/api/athletes/:id', needUser, wrap((req) => {
   const scoring = defaultScoring(a.sport);
   const log = all(
     `SELECT g.id AS game_id, g.week, g.starts_at, g.status, gs.stats, h.name AS home_name, aw.name AS away_name,
-            g.home_score, g.away_score
+            g.home_score, g.away_score, g.home_team_id, g.away_team_id
        FROM game_stats gs JOIN games g ON g.id = gs.game_id
        LEFT JOIN im_teams h ON h.id = g.home_team_id LEFT JOIN im_teams aw ON aw.id = g.away_team_id
       WHERE gs.athlete_id = ? ORDER BY g.starts_at`,
@@ -354,7 +354,8 @@ app.get('/api/athletes/:id', needUser, wrap((req) => {
   const lines = Object.fromEntries(F.statLinesFor('gs.athlete_id = ?', a.id).map((l) => [l.game_id, l]));
   for (const r of log) {
     const line = lines[r.game_id];
-    Object.assign(r, { stats: line.stats, mult: line.mult, points: F.linePoints(line, scoring) });
+    Object.assign(r, { stats: line.stats, mult: line.mult, points: F.linePoints(line, scoring),
+      club_side: r.home_team_id === a.im_team_id ? 'home' : r.away_team_id === a.im_team_id ? 'away' : null });
   }
   const owners = all(
     `SELECT l.id AS league_id, l.name AS league_name, lt.name AS team_name FROM roster r

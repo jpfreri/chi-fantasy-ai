@@ -64,6 +64,15 @@ function fromLocalInput(v) {
 
 const ordinal = (n) => `${n}${['th', 'st', 'nd', 'rd'][(n % 100 >= 11 && n % 100 <= 13) || n % 10 > 3 ? 0 : n % 10]}`;
 const pts = (n) => `<span class="pts ${n < 0 ? 'neg' : ''}">${Number(n || 0).toFixed(1)}</span>`;
+// Round initials badge with a color picked from the name, for players and teams.
+function avatar(name, size = '') {
+  const words = String(name || '?').replace(/[^\p{L}\p{N} ]/gu, '').trim().split(/\s+/);
+  const ini = ((words[0]?.[0] || '?') + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+  let h = 0;
+  for (const c of String(name)) h = (h * 31 + c.codePointAt(0)) % 360;
+  return `<span class="av ${size}" style="--h:${h}" aria-hidden="true">${esc(ini)}</span>`;
+}
+const posChip = (p) => (p ? `<span class="pos">${esc(p)}</span>` : '');
 const statusBadge = (s) => `<span class="badge ${esc(s)}">${esc(s)}</span>`;
 const sportName = (k) => `${S.sports[k]?.icon || ''} ${esc(S.sports[k]?.name || k)}`;
 const formData = (form) => Object.fromEntries(new FormData(form).entries());
@@ -110,6 +119,7 @@ function renderNav() {
   const nav = document.getElementById('nav');
   if (!S.me) {
     nav.innerHTML = '';
+    document.getElementById('tabbar').innerHTML = '';
     return;
   }
   const here = location.hash;
@@ -119,9 +129,15 @@ function renderNav() {
     ${Object.values(S.sports).map((s) => link(`#/sport/${s.key}`, `${s.icon} ${esc(s.name)}`)).join('')}
     ${S.me.is_admin ? link('#/admin', 'Admin') : ''}
     <span class="spacer"></span>
-    <span class="who">${esc(S.me.display_name)}</span>
-    ${link('#/account', 'Account')}
-    <a href="#" data-act="logout">Log out</a>`;
+    <a href="#/account" class="keep who" title="Account">${avatar(S.me.display_name, 'sm')}<span class="who-name">${esc(S.me.display_name)}</span></a>
+    <a href="#" class="keep" data-act="logout">Log out</a>`;
+  // Phone: a floating tab bar at the bottom, like a sports app.
+  const tab = (href, icon, text, on) => `<a href="${href}" class="${on ? 'on' : ''}"><span class="i">${icon}</span>${text}</a>`;
+  const sportOn = (k) => here.startsWith(`#/sport/${k}`);
+  document.getElementById('tabbar').innerHTML = `
+    ${tab('#/', '🏠', 'Home', here === '#/' || here === '' || here.startsWith('#/league'))}
+    ${Object.values(S.sports).map((s) => tab(`#/sport/${s.key}`, s.icon, esc(s.name.split(' ')[0]), sportOn(s.key))).join('')}
+    ${S.me.is_admin ? tab('#/admin', '⚙️', 'Admin', here.startsWith('#/admin')) : ''}`;
 }
 
 const routes = [
@@ -317,11 +333,12 @@ async function pageHome() {
   const joined = new Set(d.myTeams.map((t) => t.league_id));
   const open = d.leagues.filter((l) => l.status === 'setup' && !joined.has(l.id));
   render(`
-    <div class="page-head"><h1>Hey ${esc(S.me.display_name.split(' ')[0])} 👋</h1></div>
+    <div class="page-head hello">${avatar(S.me.display_name, 'lg')}<div class="grow"><div class="muted small">Welcome back</div>
+      <h1>Hey ${esc(S.me.display_name.split(' ')[0])} 👋</h1></div></div>
 
-    <div class="grid sports" style="margin-bottom:18px">
+    <div class="sport-chips">
       ${Object.values(S.sports).map((s) => `
-        <a class="sport-tile" href="#/sport/${s.key}"><span class="icon">${s.icon}</span><span class="name">${esc(s.name)}</span></a>`).join('')}
+        <a class="sport-chip" href="#/sport/${s.key}"><span class="icon">${s.icon}</span>${esc(s.name)}</a>`).join('')}
     </div>
 
     <div class="card">
@@ -329,7 +346,7 @@ async function pageHome() {
       ${d.myTeams.length ? `<div class="grid cards">${d.myTeams.map((t) => `
         <div class="card" style="margin:0">
           <div class="row"><strong>${sportName(t.sport)}</strong><span class="grow"></span>${statusBadge(t.status)}</div>
-          <h3 style="margin:8px 0 2px"><a href="#/league/${t.league_id}">${esc(t.team_name)}</a></h3>
+          <div class="who-cell" style="margin:10px 0 2px">${avatar(t.team_name)}<h3 style="margin:0"><a href="#/league/${t.league_id}">${esc(t.team_name)}</a></h3></div>
           <div class="muted small">${esc(t.league_name)}</div>
           <div class="row" style="margin-top:8px">
             ${t.status === 'setup' ? `<span class="muted small">Waiting for the draft · ${t.teams} teams</span>` : ''}
@@ -674,6 +691,19 @@ function nextGameText(g) {
   return `${g.status === 'live' ? 'Live now' : fmtDate(g.starts_at)} vs ${esc(g.opponent)}`;
 }
 
+// Last few games as bars, green at or above his average over those games and red below, with the average as a dashed line.
+function recentChart(games) {
+  if (!games.length) return '';
+  const avg = games.reduce((t, g) => t + g.points, 0) / games.length;
+  const top = Math.max(avg, ...games.map((g) => g.points), 1) * 1.15;
+  const opp = (g) => (g.club_side === 'home' ? g.away_name : g.club_side === 'away' ? g.home_name : `${g.away_name} @ ${g.home_name}`);
+  return `<div class="card"><div class="row"><h2 style="margin:0">Last ${games.length} game${games.length === 1 ? '' : 's'}</h2><span class="grow"></span>
+      <span class="muted small"><strong style="color:var(--text)">${avg.toFixed(1)}</strong> avg</span></div>
+    <div class="bars">${games.map((g) => `<div class="bar ${g.points < avg ? 'lo' : ''}" title="${esc(opp(g))}"><b>${Number(g.points).toFixed(1)}</b><i style="height:${Math.max(2, (g.points / top) * 100)}%"></i></div>`).join('')}
+      <div class="avg" style="bottom:${(avg / top) * 100}%"><span>${avg.toFixed(1)}</span></div></div>
+    <div class="barlabels">${games.map((g) => `<span>${esc(String(opp(g) || '').slice(0, 14))}<br>${fmtDate(g.starts_at, false).replace(/^\w+,?\s*/, '')}</span>`).join('')}</div></div>`;
+}
+
 async function pagePlayer(id) {
   const d = await GET(`/api/athletes/${id}`);
   const { athlete: a, sport: s } = d;
@@ -682,8 +712,9 @@ async function pagePlayer(id) {
   render(`
     <div class="page-head"><a href="#/sport/${a.sport}">${sportName(a.sport)}</a><span class="muted">/ Players</span></div>
     <div class="card">
-      <h1>${esc(a.name)} ${a.active ? '' : '<span class="badge">inactive</span>'}</h1>
-      <p class="muted">${esc(a.position || 'No position')} · ${esc(a.team_name || 'No team')}</p>
+      <div class="player-hero">${avatar(a.name, 'lg')}<div class="grow">
+        <h1 style="margin:0">${esc(a.name)} ${a.active ? '' : '<span class="badge">inactive</span>'}</h1>
+        <p class="muted" style="margin:4px 0 0">${sportName(a.sport)} · ${esc(a.team_name || 'No team')} ${posChip(a.position)}</p></div></div>
       <div class="statgrid">
         <div><span class="muted small">Total pts</span><strong>${pts(d.card.total)}</strong></div>
         <div><span class="muted small">Avg / game</span><strong>${d.card.avg.toFixed(1)}</strong></div>
@@ -695,6 +726,7 @@ async function pagePlayer(id) {
       <p class="muted small">Points use the default scoring. Projected average is his average pulled toward his tier's average until he has a few games.</p>
       ${d.owners.length ? `<p>Owned in: ${d.owners.map((o) => `<a href="#/league/${o.league_id}">${esc(o.team_name)}</a> <span class="muted small">(${esc(o.league_name)})</span>`).join(', ')}</p>` : '<p class="muted">Free agent in every league.</p>'}
     </div>
+    ${recentChart(d.log.filter((r) => r.status !== 'scheduled').slice(-5))}
     <div class="card table-wrap"><h2>Game log</h2>
       ${d.log.length ? `<table><thead><tr><th>Game</th>${cols.map(([, l]) => `<th class="num">${esc(l)}</th>`).join('')}<th class="num">FPTS</th></tr></thead>
       <tbody>${d.log.map((r) => `<tr><td><a href="#/game/${r.game_id}">Wk ${r.week}: ${esc(r.away_name)} @ ${esc(r.home_name)}</a>
@@ -835,8 +867,8 @@ async function pageLeague(id, tab, weekParam) {
           ? 'Your roster is full, so adding a player means choosing someone to drop.'
           : `You have ${L.roster_size - myTeam.players.length} open roster spot(s).`}${L.waiver_hours > 0 ? ` Dropped players sit on waivers for ${L.waiver_hours} hours: put in a claim, and the team with the best waiver priority gets him.` : ''}</p>` : '<p class="muted small">You are not in this league.</p>'}
         <div class="table-wrap"><table><thead><tr><th>Player</th><th>Pos</th><th>Team</th><th>Next game</th><th class="num">GP</th><th class="num">Pts</th><th class="num">Avg</th><th class="num">Proj</th><th></th></tr></thead>
-        <tbody>${d.freeAgents.map((a) => `<tr><td><a href="#/player/${a.id}">${esc(a.name)}</a>${a.waiver_until
-          ? ` <span class="badge wv" title="On waivers until ${esc(fmtDate(a.waiver_until))}">W</span><div class="muted small">Waivers clear ${fmtDate(a.waiver_until)}</div>` : ''}</td><td>${esc(a.position || '')}</td>
+        <tbody>${d.freeAgents.map((a) => `<tr><td><div class="who-cell">${avatar(a.name, 'sm')}<div class="nm"><a href="#/player/${a.id}">${esc(a.name)}</a>${a.waiver_until
+          ? ` <span class="badge wv" title="On waivers until ${esc(fmtDate(a.waiver_until))}">W</span><div class="muted small">Waivers clear ${fmtDate(a.waiver_until)}</div>` : ''}</div></div></td><td>${posChip(a.position)}</td>
           <td>${esc(a.team_name || '')}</td><td class="small muted">${nextGameText(a.next_game)}</td><td class="num">${a.games}</td><td class="num">${pts(a.points)}</td>
           <td class="num">${a.avg.toFixed(1)}</td><td class="num"><strong>${a.proj_avg.toFixed(1)}</strong></td>
           <td class="num">${myTeam && L.status === 'active' ? `<button class="small ${a.waiver_until ? 'secondary' : ''}" data-act="add" data-id="${a.id}" data-name="${esc(a.name)}" data-waiver="${a.waiver_until ? 1 : ''}">${a.waiver_until ? 'Claim' : 'Add'}</button>` : ''}</td></tr>`).join('') ||
@@ -912,7 +944,7 @@ async function pageLeague(id, tab, weekParam) {
       ${statusBadge(L.status === 'complete' ? 'final' : L.status)}
     </div>
     ${drafting}
-    ${d.champion ? `<div class="card" style="text-align:center"><span style="font-size:2rem">🏆</span><h2>${esc(d.champion.name)} ${L.status === 'complete' ? 'won' : 'wins'} the ${esc(s.name.toLowerCase())} title!</h2>
+    ${d.champion ? `<div class="card champ-banner"><span style="font-size:2rem">🏆</span><h2>${esc(d.champion.name)} ${L.status === 'complete' ? 'won' : 'wins'} the ${esc(s.name.toLowerCase())} title!</h2>
       <p class="muted">${esc(d.champion.owner_name)} · ${d.champion.points.toFixed(1)} season points</p>
       ${d.isCommish && L.status === 'active' ? '<button class="secondary" data-act="finish">End the season</button>' : ''}</div>` : ''}
     <div class="tabs">${tabs.map(([k, label]) => `<a href="#/league/${L.id}/${k}" class="${k === tab ? 'on' : ''}">${label}</a>`).join('')}
@@ -965,9 +997,17 @@ async function pageLeague(id, tab, weekParam) {
   const tradeAct = (action, msg) => async (el) => {
     if (action === 'veto' && !confirm('Veto this trade? Neither team gets the players.')) return;
     const r = await POST(`/api/leagues/${L.id}/trades/${el.dataset.id}/${action}`);
-    toast(r.status === 'review' ? 'Accepted. The trade goes through after the review period.' : msg);
+    if (r.status === 'done') return tradeDone('Your player swap is done!', 'Now set your lineup and get ready for game night.');
+    if (r.status === 'review') return tradeDone('Trade accepted!', 'It goes through after the league review period unless the commissioner vetoes it.');
+    toast(msg);
     reload();
   };
+  // A celebration card for trades, then back to the trades tab.
+  function tradeDone(title, line) {
+    openDialog(`<div class="success"><div class="burst">⇄</div><h2>${esc(title)}</h2><p class="muted">${esc(line)}</p>
+      <button data-act="tradeOk">Done</button></div>`);
+    actions.tradeOk = () => { closeDialog(); location.hash = `#/league/${L.id}/trades`; reload(); };
+  }
   actions.acceptTrade = tradeAct('accept', 'Trade done!');
   actions.rejectTrade = tradeAct('reject', 'Offer rejected');
   actions.cancelTrade = tradeAct('cancel', 'Offer cancelled');
@@ -976,7 +1016,7 @@ async function pageLeague(id, tab, weekParam) {
   actions.tradeWith = (el) => {
     const them = byId[el.dataset.id];
     const pick = (team, name) => team.players.map((p) => `<label class="check"><input type="checkbox" name="${name}" value="${p.athlete_id}">
-      ${esc(p.name)} <span class="muted small">${esc(p.position || '')} · ${pts(p.points)}</span></label>`).join('') || '<p class="empty">No players.</p>';
+      ${avatar(p.name, 'sm')}<span class="grow">${esc(p.name)} ${posChip(p.position)}</span>${pts(p.points)}</label>`).join('') || '<p class="empty">No players.</p>';
     openDialog(`<h2>Trade with ${esc(them.name)}</h2>
       <form data-form="trade"><input type="hidden" name="to" value="${them.id}">
         <div class="grid two"><div><h3>You give</h3>${pick(myTeam, 'give')}</div><div><h3>You get</h3>${pick(them, 'get')}</div></div>
@@ -986,10 +1026,13 @@ async function pageLeague(id, tab, weekParam) {
     forms.trade = async (f, form) => {
       const ids = (n) => [...form.querySelectorAll(`input[name=${n}]:checked`)].map((x) => Number(x.value));
       const r = await POST(`/api/leagues/${L.id}/trades`, { to_team_id: Number(f.to), give: ids('give'), get: ids('get'), note: f.note });
-      closeDialog();
-      toast(r.status === 'pending' ? `Offer sent to ${them.name}` : r.status === 'rejected' ? `${them.name} turned it down` : r.status === 'review' ? `${them.name} accepted. It goes through after review.` : `${them.name} accepted!`);
-      location.hash = `#/league/${L.id}/trades`;
-      reload();
+      const [title, line] = {
+        pending: ['Offer sent!', `${them.name} can accept or reject it on the Trades & waivers tab.`],
+        rejected: ['Offer turned down', `${them.name} said no this time. Try sweetening the deal.`],
+        review: ['Trade accepted!', 'It goes through after the league review period unless the commissioner vetoes it.'],
+        done: ['Your player swap is done!', 'Now set your lineup and get ready for game night.'],
+      }[r.status] || ['Offer sent!', ''];
+      tradeDone(title, line);
     };
   };
   const lineup = async (body) => {
@@ -1023,7 +1066,7 @@ async function pageLeague(id, tab, weekParam) {
       }
       rows.sort((a, b) => b.starter - a.starter || b.points - a.points || (b.proj || 0) - (a.proj || 0));
       const total = rows.filter((r) => r.starter).reduce((sum, r) => sum + r.points, 0);
-      const tr = (r) => `<tr class="${r.starter ? '' : 'bench'}"><td class="slot">${r.starter ? 'S' : 'BN'}</td>
+      const tr = (r) => `<tr class="${r.starter ? '' : 'bench'}"><td class="slot"><span>${r.starter ? 'S' : 'BN'}</span></td>
         <td><a href="#/player/${r.athlete_id}">${esc(r.name)}</a> <span class="muted small">${esc(r.position || '')}${r.dropped ? ' · dropped' : ''}</span></td>
         <td class="num muted">${r.proj != null ? Number(r.proj).toFixed(1) : ''}</td><td class="num">${pts(r.points)}</td></tr>`;
       return `<div><h3>${esc(t.name)}</h3><table><thead><tr><th>Slot</th><th>Player</th><th class="num">Proj</th><th class="num">Pts</th></tr></thead><tbody>
@@ -1049,7 +1092,7 @@ async function pageLeague(id, tab, weekParam) {
   };
 
   function tradeCard(t, me) {
-    const list = (items) => items.map((i) => `<a href="#/player/${i.athlete_id}">${esc(i.name)}</a> <span class="muted small">${i.points.toFixed(1)}</span>`).join('<br>') || '<span class="muted">nothing</span>';
+    const list = (items) => items.map((i) => `<div class="who-cell" style="margin:4px 0">${avatar(i.name, 'sm')}<span><a href="#/player/${i.athlete_id}">${esc(i.name)}</a> <span class="muted small">${i.points.toFixed(1)}</span></span></div>`).join('') || '<span class="muted">nothing</span>';
     const label = { pending: 'Offer', review: 'Under review', done: 'Done', rejected: 'Rejected', cancelled: 'Cancelled', vetoed: 'Vetoed', failed: 'Fell through' }[t.status] || t.status;
     const btns = [];
     if (t.status === 'pending' && t.receiver_team_id === me) btns.push(['acceptTrade', 'Accept', ''], ['rejectTrade', 'Reject', 'danger']);
@@ -1084,8 +1127,8 @@ async function pageLeague(id, tab, weekParam) {
     const mine = myTeam && (m.home_team_id === myTeam.id || m.away_team_id === myTeam.id);
     const showPts = m.state !== 'upcoming';
     const side = (t, p, seed) => `<div class="mside ${m.winner && t && m.winner === t.id ? 'win' : ''}">
-      <span>${seed ? `<span class="seed">${seed}</span>` : ''}${t ? `<strong>${esc(t.name)}</strong>` : '<span class="muted">TBD</span>'}
-        ${t ? `<div class="muted small">${esc(t.owner_name)} · ${t.w}-${t.l}${t.t ? `-${t.t}` : ''}</div>` : ''}</span>
+      <span>${seed ? `<span class="seed">${seed}</span>` : ''}${t ? avatar(t.name) : ''}<span class="nm">${t ? `<strong>${esc(t.name)}</strong>` : '<span class="muted">TBD</span>'}
+        ${t ? `<div class="muted small">${esc(t.owner_name)} · ${t.w}-${t.l}${t.t ? `-${t.t}` : ''}</div>` : ''}</span></span>
       <span class="mscore">${showPts && t ? Number(p).toFixed(1) : ''}</span></div>`;
     return `<div class="card match ${mine ? 'mine' : ''}">
       <div class="row small muted"><span>${m.label ? `${esc(m.label)} · ` : ''}${unit} ${m.week}</span><span class="grow"></span>${statusBadge(m.state)}</div>
@@ -1119,9 +1162,9 @@ async function pageLeague(id, tab, weekParam) {
     const canEdit = mine && L.status === 'active';
     const settled = L.status !== 'setup' && L.status !== 'drafting';
     const row = (p) => `<tr class="${p.starter || !settled ? '' : 'bench'}">
-      <td class="slot">${settled ? (p.starter ? 'S' : 'BN') : ''}</td>
-      <td><a href="#/player/${p.athlete_id}">${esc(p.name)}</a>${p.locked ? ' <span title="His game has started tonight">🔒</span>' : ''}
-        <div class="muted small">${[p.position, p.team_name].filter(Boolean).map(esc).join(' · ')}${settled && L.status === 'active' ? ` · ${nextGameText(p.next_game)}` : ''}</div></td>
+      <td class="slot">${settled ? `<span>${p.starter ? 'S' : 'BN'}</span>` : ''}</td>
+      <td><div class="who-cell">${avatar(p.name, 'sm')}<div class="nm"><a href="#/player/${p.athlete_id}">${esc(p.name)}</a> ${posChip(p.position)}${p.locked ? ' <span title="His game has started tonight">🔒</span>' : ''}
+        <div class="muted small">${esc(p.team_name || '')}${settled && L.status === 'active' ? ` · ${nextGameText(p.next_game)}` : ''}</div></div></div></td>
       <td class="num">${pts(p.points)}</td>
       ${canEdit ? `<td class="num nowrap">${p.locked ? '' : p.starter
         ? `<button class="small secondary" data-act="bench" data-id="${p.athlete_id}">Bench</button>`
@@ -1131,11 +1174,11 @@ async function pageLeague(id, tab, weekParam) {
     const bench = settled ? t.players.filter((p) => !p.starter) : [];
     const open = settled ? Math.max(0, d.starters - starters.length) : 0;
     return `<div class="card">
-      <div class="row"><h3 style="margin:0">${esc(t.name)}</h3><span class="grow"></span>${pts(t.points)}</div>
+      <div class="row">${avatar(t.name)}<h3 style="margin:0">${esc(t.name)}</h3><span class="grow"></span>${pts(t.points)}</div>
       ${myTeam && !mine && L.status === 'active' && !d.pastDeadline ? `<button class="small secondary" data-act="tradeWith" data-id="${t.id}" style="margin:4px 0">Propose trade</button>` : ''}
       <div class="muted small" style="margin-bottom:8px">${esc(t.owner_name)} · ${settled ? `${t.w}-${t.l}${t.t ? `-${t.t}` : ''} · Rank ${t.rank}${t.streak ? ` · ${t.streak}` : ''}` : ''}</div>
       <table><tbody>${starters.map(row).join('')}
-        ${Array.from({ length: open }, () => `<tr><td class="slot">S</td><td class="muted">Empty starting spot</td><td></td>${canEdit ? '<td></td>' : ''}</tr>`).join('')}
+        ${Array.from({ length: open }, () => `<tr><td class="slot"><span>S</span></td><td class="muted">Empty starting spot</td><td></td>${canEdit ? '<td></td>' : ''}</tr>`).join('')}
         ${bench.length ? `<tr class="benchhead"><td colspan="${canEdit ? 4 : 3}" class="muted small">Bench</td></tr>` : ''}
         ${bench.map(row).join('')}
         ${t.players.length ? '' : '<tr><td class="empty">No players yet.</td></tr>'}</tbody></table>
