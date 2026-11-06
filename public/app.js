@@ -341,6 +341,8 @@ async function pageHome() {
         <a class="sport-chip" href="#/sport/${s.key}"><span class="icon">${s.icon}</span>${esc(s.name)}</a>`).join('')}
     </div>
 
+    ${d.allLeagues ? adminLeagues(d.allLeagues) : ''}
+
     <div class="card">
       <h2>My fantasy teams</h2>
       ${d.myTeams.length ? `<div class="grid cards">${d.myTeams.map((t) => `
@@ -371,6 +373,37 @@ async function pageHome() {
       <div class="card"><h2>Recent results</h2>${d.recent.map(gameRow).join('') || '<p class="empty">No results yet.</p>'}</div>
     </div>`);
   actions.go = (el) => (location.hash = el.dataset.href);
+}
+
+// The commissioner's dashboard: every league, its leader and this round's matchups, one click from each tab.
+function adminLeagues(list) {
+  const rec = (x) => `${x.w}-${x.l}${x.t ? `-${x.t}` : ''}`;
+  const unit = (l) => (l.round_by === 'week' ? 'Week' : 'Round');
+  const roundName = (l) => (l.week > l.regular_weeks ? (l.week === l.last_week ? 'Championship' : 'Playoffs') : `${unit(l)} ${l.week}`);
+  const card = (l) => {
+    const live = l.status === 'active' || l.status === 'complete';
+    const links = live
+      ? [['matchups', 'Matchups'], ['standings', 'Standings'], ['rosters', 'Rosters'], ['trades', 'Trades'], ['activity', 'Activity']]
+      : l.status === 'drafting' ? [['draft', 'Draft room'], ['setup', 'Teams']] : [['setup', 'Draft setup']];
+    return `<div class="card admin-league">
+      <div class="row"><span class="big-icon sm">${S.sports[l.sport]?.icon || ''}</span>
+        <div class="grow"><a href="#/league/${l.id}"><strong>${esc(l.name)}</strong></a><div class="muted small">${l.teams} teams${l.season ? ` · ${esc(l.season)}` : ''}</div></div>
+        ${statusBadge(l.status === 'complete' ? 'final' : l.status)}</div>
+      ${l.champion ? `<p class="small" style="margin:10px 0 0">🏆 Champion: <strong>${esc(l.champion)}</strong></p>`
+        : l.leader ? `<p class="small" style="margin:10px 0 0">Leader: <strong>${esc(l.leader.name)}</strong> <span class="muted">${rec(l.leader)} · ${esc(l.leader.owner || '')}</span></p>` : ''}
+      ${l.draft ? `<p class="small" style="margin:10px 0 0">Draft: pick ${l.draft.made + 1} of ${l.draft.total}${l.draft.on_clock ? ` · <strong>${esc(l.draft.on_clock)}</strong> on the clock` : ''}</p>` : ''}
+      ${l.status === 'setup' ? `<p class="small muted" style="margin:10px 0 0">Waiting for the draft.</p>` : ''}
+      ${l.matchups.length ? `<div class="muted small" style="margin-top:10px">${esc(roundName(l))}</div>
+        ${l.matchups.map((m) => `<a class="minimatch" href="#/league/${l.id}/matchups/${l.week}">
+          <span class="small">${esc(m.away)} <span class="muted">vs</span> ${esc(m.home)}${m.pick && m.state !== 'final' ? `<br><span class="muted">🤖 ${esc(m.pick)} ${m.pick_pct}%</span>` : ''}</span>
+          <span>${m.state === 'upcoming' ? statusBadge('upcoming') : `${Number(m.away_points).toFixed(1)} – ${Number(m.home_points).toFixed(1)}`}</span></a>`).join('')}` : ''}
+      <div class="row" style="margin-top:12px;gap:6px">${links.map(([k, label]) => `<a class="btn secondary small" href="#/league/${l.id}${k === 'draft' ? '/draft' : `/${k}`}">${label}</a>`).join('')}</div>
+    </div>`;
+  };
+  return `<div class="card"><div class="row"><h2 style="margin:0">Commissioner view</h2><span class="badge seedb">Admin</span><span class="grow"></span>
+      <span class="muted small">Every league, live</span></div>
+    <p class="muted small">As admin you can open any league, see every team's roster and matchups, set any team's lineup, and review trades.</p>
+    <div class="grid cards">${list.map(card).join('')}</div></div>`;
 }
 
 // ---------- Sport ----------
@@ -944,6 +977,7 @@ async function pageLeague(id, tab, weekParam) {
       ${statusBadge(L.status === 'complete' ? 'final' : L.status)}
     </div>
     ${drafting}
+    ${d.isCommish && !myTeam && S.me.is_admin ? `<div class="card commish-note small"><strong>Commissioner view.</strong> You're not playing in this league, but you can see every team, roster and matchup, set any team's lineup, edit rosters from Admin, and approve or veto trades.</div>` : ''}
     ${d.champion ? `<div class="card champ-banner"><span style="font-size:2rem">🏆</span><h2>${esc(d.champion.name)} ${L.status === 'complete' ? 'won' : 'wins'} the ${esc(s.name.toLowerCase())} title!</h2>
       <p class="muted">${esc(d.champion.owner_name)} · ${d.champion.points.toFixed(1)} season points</p>
       ${d.isCommish && L.status === 'active' ? '<button class="secondary" data-act="finish">End the season</button>' : ''}</div>` : ''}
@@ -976,7 +1010,8 @@ async function pageLeague(id, tab, weekParam) {
   };
   actions.drop = async (el) => {
     if (!confirm(`Drop ${el.dataset.name}? They become a free agent.`)) return;
-    await POST(`/api/leagues/${L.id}/transactions`, { drop_id: el.dataset.id });
+    if (el.dataset.team) await POST(`/api/leagues/${L.id}/admin/roster`, { team_id: Number(el.dataset.team), drop_id: el.dataset.id });
+    else await POST(`/api/leagues/${L.id}/transactions`, { drop_id: el.dataset.id });
     toast(`Dropped ${el.dataset.name}`);
     reload();
   };
@@ -1040,16 +1075,18 @@ async function pageLeague(id, tab, weekParam) {
     closeDialog();
     reload();
   };
-  actions.bench = (el) => lineup({ athlete_id: el.dataset.id, starter: false });
+  const teamArg = (el) => (el.dataset.team ? { team_id: Number(el.dataset.team) } : {});
+  actions.bench = (el) => lineup({ athlete_id: el.dataset.id, starter: false, ...teamArg(el) });
   actions.start = (el) => {
-    const starters = myTeam.players.filter((p) => p.starter);
-    if (starters.length < d.starters) return lineup({ athlete_id: el.dataset.id, starter: true });
+    const team = el.dataset.team ? byId[el.dataset.team] : myTeam;
+    const starters = team.players.filter((p) => p.starter);
+    if (starters.length < d.starters) return lineup({ athlete_id: el.dataset.id, starter: true, ...teamArg(el) });
     const free = starters.filter((p) => !p.locked);
     openDialog(`<h2>Start ${esc(el.dataset.name)}</h2><p class="muted">Your lineup is full. Pick a starter to move to the bench.</p>
-      <div class="stack">${free.map((p) => `<button class="secondary droppick" data-act="swap" data-id="${esc(el.dataset.id)}" data-swap="${p.athlete_id}">
+      <div class="stack">${free.map((p) => `<button class="secondary droppick" data-act="swap" data-id="${esc(el.dataset.id)}" data-swap="${p.athlete_id}"${el.dataset.team ? ` data-team="${esc(el.dataset.team)}"` : ''}>
         Bench <strong>${esc(p.name)}</strong> <span class="muted small">${esc(p.position || '')} · ${nextGameText(p.next_game)}</span></button>`).join('') || '<p class="empty">Every starter is locked tonight.</p>'}</div>`);
   };
-  actions.swap = (el) => lineup({ athlete_id: el.dataset.id, starter: true, swap_id: el.dataset.swap });
+  actions.swap = (el) => lineup({ athlete_id: el.dataset.id, starter: true, swap_id: el.dataset.swap, ...teamArg(el) });
   // ESPN-style box score: each side's starters, then bench, with projected and actual points.
   actions.detail = (el) => {
     const w = Number(el.dataset.week);
@@ -1159,7 +1196,9 @@ async function pageLeague(id, tab, weekParam) {
   }
 
   function rosterCard(t, mine) {
-    const canEdit = mine && L.status === 'active';
+    // The commissioner can set any team's lineup; owners set their own.
+    const canEdit = (mine || d.isCommish) && L.status === 'active';
+    const tid = mine ? '' : ` data-team="${t.id}"`;
     const settled = L.status !== 'setup' && L.status !== 'drafting';
     const row = (p) => `<tr class="${p.starter || !settled ? '' : 'bench'}">
       <td class="slot">${settled ? `<span>${p.starter ? 'S' : 'BN'}</span>` : ''}</td>
@@ -1167,9 +1206,9 @@ async function pageLeague(id, tab, weekParam) {
         <div class="muted small">${esc(p.team_name || '')}${settled && L.status === 'active' ? ` · ${nextGameText(p.next_game)}` : ''}</div></div></div></td>
       <td class="num">${pts(p.points)}</td>
       ${canEdit ? `<td class="num nowrap">${p.locked ? '' : p.starter
-        ? `<button class="small secondary" data-act="bench" data-id="${p.athlete_id}">Bench</button>`
-        : `<button class="small" data-act="start" data-id="${p.athlete_id}" data-name="${esc(p.name)}">Start</button>`}
-        <button class="small danger" data-act="drop" data-id="${p.athlete_id}" data-name="${esc(p.name)}">Drop</button></td>` : ''}</tr>`;
+        ? `<button class="small secondary" data-act="bench" data-id="${p.athlete_id}"${tid}>Bench</button>`
+        : `<button class="small" data-act="start" data-id="${p.athlete_id}" data-name="${esc(p.name)}"${tid}>Start</button>`}
+        <button class="small danger" data-act="drop" data-id="${p.athlete_id}" data-name="${esc(p.name)}"${tid}>Drop</button></td>` : ''}</tr>`;
     const starters = settled ? t.players.filter((p) => p.starter) : t.players;
     const bench = settled ? t.players.filter((p) => !p.starter) : [];
     const open = settled ? Math.max(0, d.starters - starters.length) : 0;

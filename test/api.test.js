@@ -397,3 +397,13 @@ test('waivers: a dropped player needs a claim, and the best waiver priority wins
   assert.ok(lg.data.activity.some((a) => /claimed Jay off waivers/.test(a.text)));
   if (first === ids.tradeCal) assert.ok(lg.data.waivers.players.some((p) => p.athlete_id === ath.Kim), 'the player dropped for a claim goes on waivers too');
 });
+
+test('the admin sees every league on the home page; players do not', async () => {
+  const a = await admin('GET', '/api/home');
+  const all = (await admin('GET', '/api/home')).data.leagues.length;
+  assert.equal(a.data.allLeagues.length, all);
+  const active = a.data.allLeagues.find((l) => l.id === ids.tradeLeague);
+  assert.equal(active.status, 'active');
+  assert.ok(active.leader && Array.isArray(active.matchups));
+  assert.equal((await bob('GET', '/api/home')).data.allLeagues, null);
+});

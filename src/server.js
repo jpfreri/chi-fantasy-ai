@@ -301,8 +301,38 @@ app.get('/api/home', needUser, wrap((req) => {
     upcoming: all(`${gameSql} WHERE g.status != 'final' AND ${clubGame} ORDER BY g.starts_at LIMIT 8`),
     recent: all(`${gameSql} WHERE g.status = 'final' AND ${clubGame} ORDER BY g.starts_at DESC LIMIT 8`),
     leagues: all('SELECT id, sport, name, season, status FROM leagues ORDER BY id DESC'),
+    allLeagues: req.user.is_admin ? adminOverview() : null,
   };
 }));
+
+// The commissioner's view of every league at once: status, leader, and this round's matchups.
+function adminOverview() {
+  return all('SELECT id FROM leagues ORDER BY id').map(({ id }) => {
+    tick(id);
+    const league = F.getLeague(id);
+    const view = F.leagueView(league);
+    const byId = Object.fromEntries(view.teams.map((t) => [t.id, t]));
+    const live = ['active', 'complete'].includes(league.status);
+    const games = [...view.matchups, ...(view.playoffs?.rounds.flatMap((r) => r.games) || [])];
+    const week = live ? Math.max(1, Math.min(view.currentWeek || 1, view.lastWeek || 1)) : null;
+    const round = live ? games.filter((g) => g.week === week) : [];
+    const draft = league.status === 'drafting' ? F.draftState(league) : null;
+    const name = (tid) => byId[tid]?.name || 'TBD';
+    return {
+      id: league.id, sport: league.sport, name: league.name, season: league.season, status: league.status,
+      teams: view.teams.length, round_by: league.round_by, week, last_week: view.lastWeek, regular_weeks: league.regular_weeks,
+      leader: live && view.teams[0] ? { name: view.teams[0].name, w: view.teams[0].w, l: view.teams[0].l, t: view.teams[0].t, owner: view.teams[0].owner_name } : null,
+      champion: league.status === 'complete' || view.champion ? view.champion?.name || null : null,
+      draft: draft ? { made: draft.picksMade, total: draft.totalPicks ?? null, on_clock: draft.onClock?.name || null } : null,
+      matchups: round.map((g) => ({
+        home: name(g.home_team_id), away: name(g.away_team_id), state: g.state,
+        home_points: g.home_points, away_points: g.away_points, label: g.label || null,
+        pick: g.prediction && g.prediction.basis !== 'none' ? (g.prediction.home_win >= 0.5 ? name(g.home_team_id) : name(g.away_team_id)) : null,
+        pick_pct: g.prediction && g.prediction.basis !== 'none' ? Math.round(Math.max(g.prediction.home_win, 1 - g.prediction.home_win) * 100) : null,
+      })),
+    };
+  });
+}
 
 // ---------- Sports, teams, athletes ----------
 

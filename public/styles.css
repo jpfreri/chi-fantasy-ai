@@ -94,7 +94,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 26px 22px 70px; }
 .grid { display: grid; gap: 16px; }
 .grid.two { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
 .grid.sports { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-.grid.cards { grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); }
+.grid.cards { grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); }
 .layout-draft { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: start; }
 @media (max-width: 900px) { .layout-draft { grid-template-columns: minmax(0, 1fr); } }
 #board { overflow-x: auto; }
@@ -392,3 +392,7 @@ dialog:has(.success) { width: min(420px, calc(100vw - 32px)); }
 th { white-space: nowrap; }
 td.num { white-space: nowrap; }
 .statgrid strong.small { font-size: .95rem; font-weight: 700; }
+.big-icon.sm { width: 40px; height: 40px; font-size: 1.3rem; }
+.admin-league { margin: 0; }
+a.btn.small { padding: 4px 11px; font-size: .8rem; }
+.commish-note { border-color: rgba(124, 92, 255, .5); background: linear-gradient(120deg, var(--brand-soft), transparent), var(--card); }
